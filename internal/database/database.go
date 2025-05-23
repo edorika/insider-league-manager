@@ -42,6 +42,24 @@ type Service interface {
 
 	// DeleteTeam deletes a team from the database
 	DeleteTeam(ctx context.Context, teamID int) error
+
+	// CreateLeague creates a new league in the database
+	CreateLeague(ctx context.Context, req *models.CreateLeagueRequest) (*models.League, error)
+
+	// AddTeamToLeague adds a team to a league
+	AddTeamToLeague(ctx context.Context, leagueID, teamID int) error
+
+	// InitializeStanding creates initial standing entry for a team in a league
+	InitializeStanding(ctx context.Context, leagueID, teamID int) error
+
+	// GetDefaultTeams retrieves the 4 default teams for league initialization
+	GetDefaultTeams(ctx context.Context) ([]*models.Team, error)
+
+	// GetLeagueByID retrieves a league by its ID
+	GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error)
+
+	// RemoveTeamFromLeague removes a team from a league
+	RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error
 }
 
 type service struct {

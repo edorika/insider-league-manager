@@ -19,6 +19,12 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/api/teams", s.teamsHandler)
 	mux.HandleFunc("/api/teams/", s.teamsHandler) // Handle /api/teams/* patterns
 
+	// League routes
+	mux.HandleFunc("/api/leagues/create", s.leaguesCreateHandler)
+	mux.HandleFunc("/api/leagues/initialize", s.leaguesInitializeHandler)
+	mux.HandleFunc("/api/leagues/add-team/", s.leaguesAddTeamHandler)
+	mux.HandleFunc("/api/leagues/remove-team/", s.leaguesRemoveTeamHandler)
+
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
 }
@@ -102,4 +108,44 @@ func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// If we get here, the path doesn't match any known pattern
 	http.Error(w, "Not found", http.StatusNotFound)
+}
+
+// leaguesCreateHandler handles POST /api/leagues/create
+func (s *Server) leaguesCreateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.CreateLeagueHandler(w, r)
+}
+
+// leaguesInitializeHandler handles POST /api/leagues/initialize
+func (s *Server) leaguesInitializeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.InitializeLeagueHandler(w, r)
+}
+
+// leaguesAddTeamHandler handles POST /api/leagues/add-team/:leagueID/:teamID
+func (s *Server) leaguesAddTeamHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.AddTeamToLeagueHandler(w, r)
+}
+
+// leaguesRemoveTeamHandler handles POST /api/leagues/remove-team/:leagueID/:teamID
+func (s *Server) leaguesRemoveTeamHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.RemoveTeamFromLeagueHandler(w, r)
 }

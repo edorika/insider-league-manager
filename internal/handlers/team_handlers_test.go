@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"insider-league-manager/internal/models"
 )
@@ -72,6 +73,56 @@ func (m *mockDBService) DeleteTeam(ctx context.Context, teamID int) error {
 	}
 	// Return error for any other ID to simulate not found
 	return fmt.Errorf("no team found with ID %d", teamID)
+}
+
+func (m *mockDBService) CreateLeague(ctx context.Context, req *models.CreateLeagueRequest) (*models.League, error) {
+	return &models.League{
+		ID:          1,
+		Name:        req.Name,
+		Status:      "created",
+		CurrentWeek: 0,
+		CreatedAt:   time.Now(),
+	}, nil
+}
+
+func (m *mockDBService) AddTeamToLeague(ctx context.Context, leagueID, teamID int) error {
+	return nil // Successful operation
+}
+
+func (m *mockDBService) InitializeStanding(ctx context.Context, leagueID, teamID int) error {
+	return nil // Successful operation
+}
+
+func (m *mockDBService) GetDefaultTeams(ctx context.Context) ([]*models.Team, error) {
+	return []*models.Team{
+		{ID: 1, Name: "Manchester City", Strength: 88},
+		{ID: 2, Name: "Liverpool FC", Strength: 86},
+		{ID: 3, Name: "Chelsea FC", Strength: 84},
+		{ID: 4, Name: "Arsenal FC", Strength: 82},
+	}, nil
+}
+
+func (m *mockDBService) GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error) {
+	if leagueID == 1 {
+		return &models.League{
+			ID:          1,
+			Name:        "Test League",
+			Status:      "created",
+			CurrentWeek: 0,
+			CreatedAt:   time.Now(),
+		}, nil
+	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
+}
+
+func (m *mockDBService) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error {
+	// Simulate that team 1 is in league 1, others are not
+	if leagueID == 1 && teamID == 1 {
+		return nil // Successful removal
+	}
+	// Return error for any other combination to simulate team not in league
+	return fmt.Errorf("team %d is not in league %d", teamID, leagueID)
 }
 
 func TestCreateTeamHandler(t *testing.T) {
