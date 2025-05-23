@@ -1,4 +1,4 @@
-package server
+package handlers
 
 import (
 	"bytes"
@@ -20,6 +20,10 @@ func (m *mockDBService) Health() map[string]string {
 }
 
 func (m *mockDBService) Close() error {
+	return nil
+}
+
+func (m *mockDBService) InitializeTables(ctx context.Context) error {
 	return nil
 }
 
@@ -50,11 +54,20 @@ func (m *mockDBService) GetTeamByID(ctx context.Context, teamID int) (*models.Te
 	return nil, fmt.Errorf("no rows in result set")
 }
 
-func TestCreateTeamHandler(t *testing.T) {
-	// Create a server with mock database
-	server := &Server{
-		db: &mockDBService{},
+func (m *mockDBService) UpdateTeam(ctx context.Context, teamID int, req *models.CreateTeamRequest) (*models.Team, error) {
+	if teamID == 1 {
+		return &models.Team{
+			ID:       1,
+			Name:     req.Name,
+			Strength: req.Strength,
+		}, nil
 	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
+}
+
+func TestCreateTeamHandler(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
 
 	// Test data
 	teamReq := models.CreateTeamRequest{
@@ -76,7 +89,7 @@ func TestCreateTeamHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Call the handler
-	server.createTeamHandler(w, req)
+	handler.CreateTeamHandler(w, req)
 
 	// Check status code
 	if w.Code != http.StatusCreated {
@@ -108,14 +121,12 @@ func TestCreateTeamHandler(t *testing.T) {
 }
 
 func TestGetAllTeamsHandler(t *testing.T) {
-	server := &Server{
-		db: &mockDBService{},
-	}
+	handler := NewTeamHandler(&mockDBService{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/teams", nil)
 	w := httptest.NewRecorder()
 
-	server.getAllTeamsHandler(w, req)
+	handler.GetAllTeamsHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
@@ -137,14 +148,12 @@ func TestGetAllTeamsHandler(t *testing.T) {
 }
 
 func TestGetTeamByIDHandler(t *testing.T) {
-	server := &Server{
-		db: &mockDBService{},
-	}
+	handler := NewTeamHandler(&mockDBService{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/teams/1", nil)
 	w := httptest.NewRecorder()
 
-	server.getTeamByIDHandler(w, req)
+	handler.GetTeamByIDHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
@@ -164,40 +173,89 @@ func TestGetTeamByIDHandler(t *testing.T) {
 	}
 }
 
-func TestGetTeamByIDHandler_NotFound(t *testing.T) {
-	server := &Server{
-		db: &mockDBService{},
+func TestUpdateTeamHandler(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	// Test data
+	teamReq := models.CreateTeamRequest{
+		Name:     "Updated Team",
+		Strength: 95,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/teams/99", nil)
+	// Convert to JSON
+	reqBody, err := json.Marshal(teamReq)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	// Create request
+	req := httptest.NewRequest(http.MethodPut, "/api/teams/1", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	// Create response recorder
 	w := httptest.NewRecorder()
 
-	server.getTeamByIDHandler(w, req)
+	// Call the handler
+	handler.UpdateTeamHandler(w, req)
+
+	// Check status code
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp models.TeamResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify response data
+	if resp.Name != teamReq.Name {
+		t.Errorf("Expected name %s, got %s", teamReq.Name, resp.Name)
+	}
+	if resp.Strength != teamReq.Strength {
+		t.Errorf("Expected strength %d, got %d", teamReq.Strength, resp.Strength)
+	}
+	if resp.ID != 1 {
+		t.Errorf("Expected ID %d, got %d", 1, resp.ID)
+	}
+}
+
+func TestUpdateTeamHandler_NotFound(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	teamReq := models.CreateTeamRequest{
+		Name:     "Updated Team",
+		Strength: 95,
+	}
+
+	reqBody, _ := json.Marshal(teamReq)
+	req := httptest.NewRequest(http.MethodPut, "/api/teams/99", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.UpdateTeamHandler(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
 	}
 }
 
-func TestCreateTeamHandler_InvalidMethod(t *testing.T) {
-	server := &Server{
-		db: &mockDBService{},
-	}
+func TestGetTeamByIDHandler_NotFound(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/teams", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/teams/99", nil)
 	w := httptest.NewRecorder()
 
-	server.createTeamHandler(w, req)
+	handler.GetTeamByIDHandler(w, req)
 
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
 	}
 }
 
 func TestCreateTeamHandler_EmptyName(t *testing.T) {
-	server := &Server{
-		db: &mockDBService{},
-	}
+	handler := NewTeamHandler(&mockDBService{})
 
 	teamReq := models.CreateTeamRequest{
 		Name:     "",
@@ -209,7 +267,27 @@ func TestCreateTeamHandler_EmptyName(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
-	server.createTeamHandler(w, req)
+	handler.CreateTeamHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestUpdateTeamHandler_EmptyName(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	teamReq := models.CreateTeamRequest{
+		Name:     "",
+		Strength: 75,
+	}
+
+	reqBody, _ := json.Marshal(teamReq)
+	req := httptest.NewRequest(http.MethodPut, "/api/teams/1", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.UpdateTeamHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)

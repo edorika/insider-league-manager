@@ -76,9 +76,9 @@ func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
 	if path == "api/teams" {
 		switch r.Method {
 		case http.MethodPost:
-			s.createTeamHandler(w, r)
+			s.teamHandler.CreateTeamHandler(w, r)
 		case http.MethodGet:
-			s.getAllTeamsHandler(w, r)
+			s.teamHandler.GetAllTeamsHandler(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -89,7 +89,9 @@ func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
 	if len(pathParts) == 3 && pathParts[0] == "api" && pathParts[1] == "teams" {
 		switch r.Method {
 		case http.MethodGet:
-			s.getTeamByIDHandler(w, r)
+			s.teamHandler.GetTeamByIDHandler(w, r)
+		case http.MethodPut:
+			s.teamHandler.UpdateTeamHandler(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

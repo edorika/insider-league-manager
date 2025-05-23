@@ -9,11 +9,6 @@ import (
 
 // CreateTeam creates a new team in the database
 func (s *service) CreateTeam(ctx context.Context, req *models.CreateTeamRequest) (*models.Team, error) {
-	// Ensure teams table exists
-	if err := s.ensureTeamsTableExists(ctx); err != nil {
-		return nil, err
-	}
-
 	// Insert the new team
 	insertQuery := `
 		INSERT INTO teams (name, strength)
@@ -42,11 +37,6 @@ func (s *service) CreateTeam(ctx context.Context, req *models.CreateTeamRequest)
 
 // GetAllTeams retrieves all teams from the database
 func (s *service) GetAllTeams(ctx context.Context) ([]*models.Team, error) {
-	// Ensure teams table exists
-	if err := s.ensureTeamsTableExists(ctx); err != nil {
-		return nil, err
-	}
-
 	query := `SELECT id, name, strength FROM teams ORDER BY id`
 
 	rows, err := s.db.QueryContext(ctx, query)
@@ -74,11 +64,6 @@ func (s *service) GetAllTeams(ctx context.Context) ([]*models.Team, error) {
 
 // GetTeamByID retrieves a team by its ID
 func (s *service) GetTeamByID(ctx context.Context, teamID int) (*models.Team, error) {
-	// Ensure teams table exists
-	if err := s.ensureTeamsTableExists(ctx); err != nil {
-		return nil, err
-	}
-
 	query := `SELECT id, name, strength FROM teams WHERE id = $1`
 
 	team := &models.Team{}
@@ -95,19 +80,31 @@ func (s *service) GetTeamByID(ctx context.Context, teamID int) (*models.Team, er
 	return team, nil
 }
 
-// ensureTeamsTableExists creates the teams table if it doesn't exist
-func (s *service) ensureTeamsTableExists(ctx context.Context) error {
-	createTableQuery := `
-		CREATE TABLE IF NOT EXISTS teams (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) NOT NULL,
-			strength INTEGER NOT NULL DEFAULT 0
-		);
+// UpdateTeam updates a team in the database
+func (s *service) UpdateTeam(ctx context.Context, teamID int, req *models.CreateTeamRequest) (*models.Team, error) {
+	updateQuery := `
+		UPDATE teams 
+		SET name = $1, strength = $2
+		WHERE id = $3
+		RETURNING id, name, strength
 	`
 
-	if _, err := s.db.ExecContext(ctx, createTableQuery); err != nil {
-		return fmt.Errorf("failed to ensure teams table exists: %w", err)
+	team := &models.Team{}
+	err := s.db.QueryRowContext(
+		ctx,
+		updateQuery,
+		req.Name,
+		req.Strength,
+		teamID,
+	).Scan(
+		&team.ID,
+		&team.Name,
+		&team.Strength,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to update team with ID %d: %w", teamID, err)
 	}
 
-	return nil
+	return team, nil
 }

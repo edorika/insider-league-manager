@@ -25,6 +25,9 @@ type Service interface {
 	// It returns an error if the connection cannot be closed.
 	Close() error
 
+	// InitializeTables creates all required database tables
+	InitializeTables(ctx context.Context) error
+
 	// CreateTeam creates a new team in the database
 	CreateTeam(ctx context.Context, req *models.CreateTeamRequest) (*models.Team, error)
 
@@ -33,6 +36,9 @@ type Service interface {
 
 	// GetTeamByID retrieves a team by its ID
 	GetTeamByID(ctx context.Context, teamID int) (*models.Team, error)
+
+	// UpdateTeam updates a team in the database
+	UpdateTeam(ctx context.Context, teamID int, req *models.CreateTeamRequest) (*models.Team, error)
 }
 
 type service struct {
