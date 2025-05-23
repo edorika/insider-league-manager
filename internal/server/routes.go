@@ -14,6 +14,9 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	mux.HandleFunc("/health", s.healthHandler)
 
+	// Team routes
+	mux.HandleFunc("/api/teams", s.createTeamHandler)
+
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
 }
