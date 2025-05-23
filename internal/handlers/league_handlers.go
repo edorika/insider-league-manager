@@ -326,3 +326,182 @@ func (lh *LeagueHandler) RemoveTeamFromLeagueHandler(w http.ResponseWriter, r *h
 		log.Printf("Failed to encode response: %v", err)
 	}
 }
+
+// StartLeagueHandler handles POST /api/leagues/start/:leagueID
+func (lh *LeagueHandler) StartLeagueHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 4 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "start" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists and get its current state
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Check if league is in correct status to start
+	if league.Status != "created" {
+		http.Error(w, fmt.Sprintf("League is already %s. Only 'created' leagues can be started", league.Status), http.StatusBadRequest)
+		return
+	}
+
+	// 3. Get all teams in the league
+	teams, err := lh.db.GetTeamsInLeague(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get teams in league %d: %v", leagueID, err)
+		http.Error(w, "Failed to get teams in league", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Validate minimum teams (need at least 2 teams to make matches)
+	if len(teams) < 2 {
+		http.Error(w, "League must have at least 2 teams to start", http.StatusBadRequest)
+		return
+	}
+
+	// 5. Generate round-robin match schedule
+	matches := lh.generateRoundRobinMatches(teams, leagueID)
+
+	// 6. Create all matches in database
+	createdMatches := 0
+	for _, match := range matches {
+		_, err := lh.db.CreateMatch(ctx, &match)
+		if err != nil {
+			log.Printf("Failed to create match: %v", err)
+			http.Error(w, "Failed to create match schedule", http.StatusInternalServerError)
+			return
+		}
+		createdMatches++
+	}
+
+	// 7. Update league status to "started"
+	if err := lh.db.UpdateLeagueStatus(ctx, leagueID, "started"); err != nil {
+		log.Printf("Failed to update league status: %v", err)
+		http.Error(w, "Failed to update league status", http.StatusInternalServerError)
+		return
+	}
+
+	// 8. Calculate total weeks
+	totalWeeks := lh.calculateTotalWeeks(len(teams))
+
+	// Create response
+	resp := models.StartLeagueResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      "started",
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		TeamsCount:   len(teams),
+		MatchesCount: createdMatches,
+		TotalWeeks:   totalWeeks,
+		Message:      fmt.Sprintf("League '%s' started successfully with %d teams and %d matches scheduled over %d weeks", league.Name, len(teams), createdMatches, totalWeeks),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
+// generateRoundRobinMatches creates a Premier League style schedule where each team plays every other team twice (home and away)
+// First half: each team plays every other team once
+// Second half: each team plays every other team again with home/away reversed
+func (lh *LeagueHandler) generateRoundRobinMatches(teams []*models.Team, leagueID int) []models.Match {
+	var matches []models.Match
+	n := len(teams)
+
+	if n < 2 {
+		return matches
+	}
+
+	week := 1
+
+	// First half of the season: each team plays every other team once
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			// Create match: team i at home vs team j away
+			match := models.Match{
+				LeagueID:   leagueID,
+				HomeTeamID: teams[i].ID,
+				AwayTeamID: teams[j].ID,
+				Week:       week,
+				Status:     "scheduled",
+			}
+			matches = append(matches, match)
+
+			// Move to next week after scheduling matches
+			// For even number of teams, we can have n/2 matches per week
+			// For odd number of teams, we can have (n-1)/2 matches per week
+			matchesPerWeek := n / 2
+			if n%2 == 1 {
+				matchesPerWeek = (n - 1) / 2
+			}
+
+			// Check if we should move to next week
+			if len(matches)%matchesPerWeek == 0 {
+				week++
+			}
+		}
+	}
+
+	// Calculate weeks for first half
+	firstHalfWeeks := week - 1
+
+	// Second half of the season: reverse home/away for each first half match
+
+	// Create second half matches by reversing home/away from first half
+	firstHalfMatches := make([]models.Match, len(matches))
+	copy(firstHalfMatches, matches)
+
+	for _, firstHalfMatch := range firstHalfMatches {
+		// Create reverse fixture: away team becomes home, home team becomes away
+		reverseMatch := models.Match{
+			LeagueID:   leagueID,
+			HomeTeamID: firstHalfMatch.AwayTeamID,            // Swap home and away
+			AwayTeamID: firstHalfMatch.HomeTeamID,            // Swap home and away
+			Week:       firstHalfMatch.Week + firstHalfWeeks, // Add to second half
+			Status:     "scheduled",
+		}
+		matches = append(matches, reverseMatch)
+	}
+
+	return matches
+}
+
+// calculateTotalWeeks calculates the total number of weeks needed for the league (including both halves)
+func (lh *LeagueHandler) calculateTotalWeeks(numTeams int) int {
+	if numTeams < 2 {
+		return 0
+	}
+
+	// Each team plays every other team twice (home and away)
+	// First half: (n-1) weeks, Second half: (n-1) weeks
+	// Total: 2 * (n-1) weeks
+	return 2 * (numTeams - 1)
+}

@@ -165,3 +165,94 @@ func (s *service) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int
 
 	return nil
 }
+
+// GetTeamsInLeague retrieves all teams that are part of a specific league
+func (s *service) GetTeamsInLeague(ctx context.Context, leagueID int) ([]*models.Team, error) {
+	query := `
+		SELECT t.id, t.name, t.strength 
+		FROM teams t
+		INNER JOIN league_teams lt ON t.id = lt.team_id
+		WHERE lt.league_id = $1
+		ORDER BY t.name
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, leagueID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query teams in league %d: %w", leagueID, err)
+	}
+	defer rows.Close()
+
+	var teams []*models.Team
+	for rows.Next() {
+		team := &models.Team{}
+		err := rows.Scan(&team.ID, &team.Name, &team.Strength)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan team: %w", err)
+		}
+		teams = append(teams, team)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over teams: %w", err)
+	}
+
+	return teams, nil
+}
+
+// CreateMatch creates a new match in the database
+func (s *service) CreateMatch(ctx context.Context, match *models.Match) (*models.Match, error) {
+	insertQuery := `
+		INSERT INTO matches (league_id, home_team_id, away_team_id, week, status)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, league_id, home_team_id, away_team_id, week, home_goals, away_goals, status, played_at, created_at
+	`
+
+	createdMatch := &models.Match{}
+	err := s.db.QueryRowContext(
+		ctx,
+		insertQuery,
+		match.LeagueID,
+		match.HomeTeamID,
+		match.AwayTeamID,
+		match.Week,
+		match.Status,
+	).Scan(
+		&createdMatch.ID,
+		&createdMatch.LeagueID,
+		&createdMatch.HomeTeamID,
+		&createdMatch.AwayTeamID,
+		&createdMatch.Week,
+		&createdMatch.HomeGoals,
+		&createdMatch.AwayGoals,
+		&createdMatch.Status,
+		&createdMatch.PlayedAt,
+		&createdMatch.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create match: %w", err)
+	}
+
+	return createdMatch, nil
+}
+
+// UpdateLeagueStatus updates the status of a league
+func (s *service) UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error {
+	updateQuery := `UPDATE leagues SET status = $1 WHERE id = $2`
+
+	result, err := s.db.ExecContext(ctx, updateQuery, status, leagueID)
+	if err != nil {
+		return fmt.Errorf("failed to update league %d status to %s: %w", leagueID, status, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after updating league %d: %w", leagueID, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no league found with ID %d", leagueID)
+	}
+
+	return nil
+}

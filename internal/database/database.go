@@ -60,6 +60,15 @@ type Service interface {
 
 	// RemoveTeamFromLeague removes a team from a league
 	RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error
+
+	// GetTeamsInLeague retrieves all teams that are part of a specific league
+	GetTeamsInLeague(ctx context.Context, leagueID int) ([]*models.Team, error)
+
+	// CreateMatch creates a new match in the database
+	CreateMatch(ctx context.Context, match *models.Match) (*models.Match, error)
+
+	// UpdateLeagueStatus updates the status of a league
+	UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error
 }
 
 type service struct {

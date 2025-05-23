@@ -87,6 +87,37 @@ func (m *mockLeagueDBService) GetTeamByID(ctx context.Context, teamID int) (*mod
 	return nil, fmt.Errorf("no rows in result set")
 }
 
+func (m *mockLeagueDBService) GetTeamsInLeague(ctx context.Context, leagueID int) ([]*models.Team, error) {
+	if leagueID == 1 {
+		return []*models.Team{
+			{ID: 1, Name: "Team A", Strength: 85},
+			{ID: 2, Name: "Team B", Strength: 90},
+		}, nil
+	}
+	if leagueID == 2 {
+		// League with only 1 team (should fail to start)
+		return []*models.Team{
+			{ID: 1, Name: "Team A", Strength: 85},
+		}, nil
+	}
+	return nil, fmt.Errorf("no teams found in league %d", leagueID)
+}
+
+func (m *mockLeagueDBService) CreateMatch(ctx context.Context, match *models.Match) (*models.Match, error) {
+	// Return the match with an assigned ID
+	createdMatch := *match
+	createdMatch.ID = 1
+	createdMatch.CreatedAt = time.Now()
+	return &createdMatch, nil
+}
+
+func (m *mockLeagueDBService) UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error {
+	if leagueID == 1 {
+		return nil // Successful update
+	}
+	return fmt.Errorf("no league found with ID %d", leagueID)
+}
+
 func TestCreateLeagueHandler(t *testing.T) {
 	handler := NewLeagueHandler(&mockLeagueDBService{})
 
@@ -503,6 +534,95 @@ func TestRemoveTeamFromLeagueHandler_InvalidPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestStartLeagueHandler(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/start/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.StartLeagueHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp models.StartLeagueResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify response data
+	if resp.League.ID != 1 {
+		t.Errorf("Expected league ID 1, got %d", resp.League.ID)
+	}
+	if resp.League.Status != "started" {
+		t.Errorf("Expected league status 'started', got %s", resp.League.Status)
+	}
+	if resp.TeamsCount != 2 {
+		t.Errorf("Expected 2 teams, got %d", resp.TeamsCount)
+	}
+	// 2 teams = 2 * (2-1) = 2 matches total
+	if resp.MatchesCount != 2 {
+		t.Errorf("Expected 2 matches, got %d", resp.MatchesCount)
+	}
+	if resp.Message == "" {
+		t.Error("Expected non-empty message")
+	}
+}
+
+func TestStartLeagueHandler_LeagueNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/start/99", nil)
+	w := httptest.NewRecorder()
+
+	handler.StartLeagueHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestStartLeagueHandler_InvalidLeagueID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/start/abc", nil)
+	w := httptest.NewRecorder()
+
+	handler.StartLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestStartLeagueHandler_InvalidMethod(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/leagues/start/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.StartLeagueHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	}
+}
+
+func TestStartLeagueHandler_InvalidPath(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/start", nil)
+	w := httptest.NewRecorder()
+
+	handler.StartLeagueHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)

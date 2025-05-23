@@ -86,3 +86,12 @@ type RemoveTeamFromLeagueResponse struct {
 	Team    Team           `json:"team"`
 	Message string         `json:"message"`
 }
+
+// StartLeagueResponse represents the response for starting a league
+type StartLeagueResponse struct {
+	League       LeagueResponse `json:"league"`
+	TeamsCount   int            `json:"teams_count"`
+	MatchesCount int            `json:"matches_count"`
+	TotalWeeks   int            `json:"total_weeks"`
+	Message      string         `json:"message"`
+}
