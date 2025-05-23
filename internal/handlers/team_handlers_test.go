@@ -85,6 +85,23 @@ func (m *mockDBService) CreateLeague(ctx context.Context, req *models.CreateLeag
 	}, nil
 }
 
+func (m *mockDBService) AddTeamToLeague(ctx context.Context, leagueID, teamID int) error {
+	return nil // Successful operation
+}
+
+func (m *mockDBService) InitializeStanding(ctx context.Context, leagueID, teamID int) error {
+	return nil // Successful operation
+}
+
+func (m *mockDBService) GetDefaultTeams(ctx context.Context) ([]*models.Team, error) {
+	return []*models.Team{
+		{ID: 1, Name: "Manchester City", Strength: 88},
+		{ID: 2, Name: "Liverpool FC", Strength: 86},
+		{ID: 3, Name: "Chelsea FC", Strength: 84},
+		{ID: 4, Name: "Arsenal FC", Strength: 82},
+	}, nil
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 

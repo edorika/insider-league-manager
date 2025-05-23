@@ -45,6 +45,15 @@ type Service interface {
 
 	// CreateLeague creates a new league in the database
 	CreateLeague(ctx context.Context, req *models.CreateLeagueRequest) (*models.League, error)
+
+	// AddTeamToLeague adds a team to a league
+	AddTeamToLeague(ctx context.Context, leagueID, teamID int) error
+
+	// InitializeStanding creates initial standing entry for a team in a league
+	InitializeStanding(ctx context.Context, leagueID, teamID int) error
+
+	// GetDefaultTeams retrieves the 4 default teams for league initialization
+	GetDefaultTeams(ctx context.Context) ([]*models.Team, error)
 }
 
 type service struct {

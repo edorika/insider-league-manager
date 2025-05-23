@@ -30,6 +30,10 @@ func (s *service) InitializeTables(ctx context.Context) error {
 		return fmt.Errorf("failed to create standings table: %w", err)
 	}
 
+	if err := s.insertDefaultTeams(ctx); err != nil {
+		return fmt.Errorf("failed to insert default teams: %w", err)
+	}
+
 	log.Println("Database tables initialized successfully")
 	return nil
 }
@@ -140,6 +144,38 @@ func (s *service) createStandingsTable(ctx context.Context) error {
 
 	if _, err := s.db.ExecContext(ctx, createTableQuery); err != nil {
 		return fmt.Errorf("failed to create standings table: %w", err)
+	}
+
+	return nil
+}
+
+// insertDefaultTeams inserts default teams if they don't already exist
+func (s *service) insertDefaultTeams(ctx context.Context) error {
+	defaultTeams := []struct {
+		name     string
+		strength int
+	}{
+		{"Manchester City", 88},
+		{"Liverpool FC", 86},
+		{"Chelsea FC", 84},
+		{"Arsenal FC", 82},
+	}
+
+	for _, team := range defaultTeams {
+		// Check if team already exists
+		var existingID int
+		checkQuery := `SELECT id FROM teams WHERE name = $1 LIMIT 1`
+		err := s.db.QueryRowContext(ctx, checkQuery, team.name).Scan(&existingID)
+
+		if err != nil {
+			// Team doesn't exist, insert it
+			insertQuery := `INSERT INTO teams (name, strength) VALUES ($1, $2)`
+			_, err := s.db.ExecContext(ctx, insertQuery, team.name, team.strength)
+			if err != nil {
+				return fmt.Errorf("failed to insert default team %s: %w", team.name, err)
+			}
+			log.Printf("Inserted default team: %s", team.name)
+		}
 	}
 
 	return nil

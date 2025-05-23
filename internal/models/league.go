@@ -65,3 +65,10 @@ type StandingWithTeam struct {
 	Standing
 	TeamName string `json:"team_name"`
 }
+
+// InitializeLeagueResponse represents the response for league initialization
+type InitializeLeagueResponse struct {
+	League  LeagueResponse `json:"league"`
+	Teams   []Team         `json:"teams"`
+	Message string         `json:"message"`
+}
