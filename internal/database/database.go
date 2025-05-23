@@ -11,6 +11,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/joho/godotenv/autoload"
+
+	"insider-league-manager/internal/models"
 )
 
 // Service represents a service that interacts with a database.
@@ -22,6 +24,24 @@ type Service interface {
 	// Close terminates the database connection.
 	// It returns an error if the connection cannot be closed.
 	Close() error
+
+	// InitializeTables creates all required database tables
+	InitializeTables(ctx context.Context) error
+
+	// CreateTeam creates a new team in the database
+	CreateTeam(ctx context.Context, req *models.CreateTeamRequest) (*models.Team, error)
+
+	// GetAllTeams retrieves all teams from the database
+	GetAllTeams(ctx context.Context) ([]*models.Team, error)
+
+	// GetTeamByID retrieves a team by its ID
+	GetTeamByID(ctx context.Context, teamID int) (*models.Team, error)
+
+	// UpdateTeam updates a team in the database
+	UpdateTeam(ctx context.Context, teamID int, req *models.CreateTeamRequest) (*models.Team, error)
+
+	// DeleteTeam deletes a team from the database
+	DeleteTeam(ctx context.Context, teamID int) error
 }
 
 type service struct {
