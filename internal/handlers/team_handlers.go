@@ -198,3 +198,39 @@ func (th *TeamHandler) UpdateTeamHandler(w http.ResponseWriter, r *http.Request)
 		log.Printf("Failed to encode response: %v", err)
 	}
 }
+
+// DeleteTeamHandler handles DELETE /api/teams/:teamID
+func (th *TeamHandler) DeleteTeamHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract team ID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 3 || pathParts[0] != "api" || pathParts[1] != "teams" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	teamID, err := strconv.Atoi(pathParts[2])
+	if err != nil {
+		http.Error(w, "Invalid team ID", http.StatusBadRequest)
+		return
+	}
+
+	// Delete the team
+	err = th.db.DeleteTeam(r.Context(), teamID)
+	if err != nil {
+		log.Printf("Failed to delete team with ID %d: %v", teamID, err)
+		if strings.Contains(err.Error(), "no team found") {
+			http.Error(w, "Team not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to delete team", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return 204 No Content for successful deletion
+	w.WriteHeader(http.StatusNoContent)
+}

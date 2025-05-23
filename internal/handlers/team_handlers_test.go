@@ -66,6 +66,14 @@ func (m *mockDBService) UpdateTeam(ctx context.Context, teamID int, req *models.
 	return nil, fmt.Errorf("no rows in result set")
 }
 
+func (m *mockDBService) DeleteTeam(ctx context.Context, teamID int) error {
+	if teamID == 1 {
+		return nil // Successful deletion
+	}
+	// Return error for any other ID to simulate not found
+	return fmt.Errorf("no team found with ID %d", teamID)
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 
@@ -291,5 +299,62 @@ func TestUpdateTeamHandler_EmptyName(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestDeleteTeamHandler(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/teams/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.DeleteTeamHandler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("Expected status %d, got %d", http.StatusNoContent, w.Code)
+	}
+
+	// Verify response body is empty for 204 No Content
+	if w.Body.Len() != 0 {
+		t.Errorf("Expected empty response body, got %s", w.Body.String())
+	}
+}
+
+func TestDeleteTeamHandler_NotFound(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/teams/99", nil)
+	w := httptest.NewRecorder()
+
+	handler.DeleteTeamHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestDeleteTeamHandler_InvalidID(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/teams/abc", nil)
+	w := httptest.NewRecorder()
+
+	handler.DeleteTeamHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestDeleteTeamHandler_InvalidMethod(t *testing.T) {
+	handler := NewTeamHandler(&mockDBService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teams/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.DeleteTeamHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
 	}
 }

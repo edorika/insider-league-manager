@@ -108,3 +108,24 @@ func (s *service) UpdateTeam(ctx context.Context, teamID int, req *models.Create
 
 	return team, nil
 }
+
+// DeleteTeam deletes a team from the database
+func (s *service) DeleteTeam(ctx context.Context, teamID int) error {
+	deleteQuery := `DELETE FROM teams WHERE id = $1`
+
+	result, err := s.db.ExecContext(ctx, deleteQuery, teamID)
+	if err != nil {
+		return fmt.Errorf("failed to delete team with ID %d: %w", teamID, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after deleting team with ID %d: %w", teamID, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no team found with ID %d", teamID)
+	}
+
+	return nil
+}

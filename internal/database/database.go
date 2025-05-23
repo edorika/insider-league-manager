@@ -39,6 +39,9 @@ type Service interface {
 
 	// UpdateTeam updates a team in the database
 	UpdateTeam(ctx context.Context, teamID int, req *models.CreateTeamRequest) (*models.Team, error)
+
+	// DeleteTeam deletes a team from the database
+	DeleteTeam(ctx context.Context, teamID int) error
 }
 
 type service struct {

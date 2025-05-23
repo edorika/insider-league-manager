@@ -92,6 +92,8 @@ func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
 			s.teamHandler.GetTeamByIDHandler(w, r)
 		case http.MethodPut:
 			s.teamHandler.UpdateTeamHandler(w, r)
+		case http.MethodDelete:
+			s.teamHandler.DeleteTeamHandler(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
