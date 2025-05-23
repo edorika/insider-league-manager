@@ -27,6 +27,12 @@ type Service interface {
 
 	// CreateTeam creates a new team in the database
 	CreateTeam(ctx context.Context, req *models.CreateTeamRequest) (*models.Team, error)
+
+	// GetAllTeams retrieves all teams from the database
+	GetAllTeams(ctx context.Context) ([]*models.Team, error)
+
+	// GetTeamByID retrieves a team by its ID
+	GetTeamByID(ctx context.Context, teamID int) (*models.Team, error)
 }
 
 type service struct {
@@ -117,50 +123,4 @@ func (s *service) Health() map[string]string {
 func (s *service) Close() error {
 	log.Printf("Disconnected from database: %s", database)
 	return s.db.Close()
-}
-
-// CreateTeam creates a new team in the database
-func (s *service) CreateTeam(ctx context.Context, req *models.CreateTeamRequest) (*models.Team, error) {
-	// Drop the existing table and create the new simplified teams table
-	dropTableQuery := `DROP TABLE IF EXISTS teams;`
-	if _, err := s.db.ExecContext(ctx, dropTableQuery); err != nil {
-		return nil, fmt.Errorf("failed to drop existing teams table: %w", err)
-	}
-
-	createTableQuery := `
-		CREATE TABLE teams (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) NOT NULL,
-			strength INTEGER NOT NULL DEFAULT 0
-		);
-	`
-
-	if _, err := s.db.ExecContext(ctx, createTableQuery); err != nil {
-		return nil, fmt.Errorf("failed to create teams table: %w", err)
-	}
-
-	// Insert the new team
-	insertQuery := `
-		INSERT INTO teams (name, strength)
-		VALUES ($1, $2)
-		RETURNING id, name, strength
-	`
-
-	team := &models.Team{}
-	err := s.db.QueryRowContext(
-		ctx,
-		insertQuery,
-		req.Name,
-		req.Strength,
-	).Scan(
-		&team.ID,
-		&team.Name,
-		&team.Strength,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create team: %w", err)
-	}
-
-	return team, nil
 }

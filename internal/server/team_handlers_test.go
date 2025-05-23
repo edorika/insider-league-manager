@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,6 +29,25 @@ func (m *mockDBService) CreateTeam(ctx context.Context, req *models.CreateTeamRe
 		Name:     req.Name,
 		Strength: req.Strength,
 	}, nil
+}
+
+func (m *mockDBService) GetAllTeams(ctx context.Context) ([]*models.Team, error) {
+	return []*models.Team{
+		{ID: 1, Name: "Team A", Strength: 85},
+		{ID: 2, Name: "Team B", Strength: 90},
+	}, nil
+}
+
+func (m *mockDBService) GetTeamByID(ctx context.Context, teamID int) (*models.Team, error) {
+	if teamID == 1 {
+		return &models.Team{
+			ID:       1,
+			Name:     "Team A",
+			Strength: 85,
+		}, nil
+	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
 }
 
 func TestCreateTeamHandler(t *testing.T) {
@@ -84,6 +104,78 @@ func TestCreateTeamHandler(t *testing.T) {
 	}
 	if resp.ID != 1 {
 		t.Errorf("Expected ID %d, got %d", 1, resp.ID)
+	}
+}
+
+func TestGetAllTeamsHandler(t *testing.T) {
+	server := &Server{
+		db: &mockDBService{},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teams", nil)
+	w := httptest.NewRecorder()
+
+	server.getAllTeamsHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp []models.TeamResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if len(resp) != 2 {
+		t.Errorf("Expected 2 teams, got %d", len(resp))
+	}
+
+	if resp[0].Name != "Team A" {
+		t.Errorf("Expected first team name 'Team A', got %s", resp[0].Name)
+	}
+}
+
+func TestGetTeamByIDHandler(t *testing.T) {
+	server := &Server{
+		db: &mockDBService{},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teams/1", nil)
+	w := httptest.NewRecorder()
+
+	server.getTeamByIDHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp models.TeamResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if resp.ID != 1 {
+		t.Errorf("Expected ID 1, got %d", resp.ID)
+	}
+	if resp.Name != "Team A" {
+		t.Errorf("Expected name 'Team A', got %s", resp.Name)
+	}
+}
+
+func TestGetTeamByIDHandler_NotFound(t *testing.T) {
+	server := &Server{
+		db: &mockDBService{},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teams/99", nil)
+	w := httptest.NewRecorder()
+
+	server.getTeamByIDHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
 	}
 }
 

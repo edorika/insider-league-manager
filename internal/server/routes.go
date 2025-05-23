@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
@@ -15,7 +16,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/health", s.healthHandler)
 
 	// Team routes
-	mux.HandleFunc("/api/teams", s.createTeamHandler)
+	mux.HandleFunc("/api/teams", s.teamsHandler)
+	mux.HandleFunc("/api/teams/", s.teamsHandler) // Handle /api/teams/* patterns
 
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
@@ -63,4 +65,37 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(resp); err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}
+}
+
+// teamsHandler routes team requests based on method and path
+func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(r.URL.Path, "/")
+	pathParts := strings.Split(path, "/")
+
+	// Handle /api/teams (exact match)
+	if path == "api/teams" {
+		switch r.Method {
+		case http.MethodPost:
+			s.createTeamHandler(w, r)
+		case http.MethodGet:
+			s.getAllTeamsHandler(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	// Handle /api/teams/{id}
+	if len(pathParts) == 3 && pathParts[0] == "api" && pathParts[1] == "teams" {
+		switch r.Method {
+		case http.MethodGet:
+			s.getTeamByIDHandler(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	// If we get here, the path doesn't match any known pattern
+	http.Error(w, "Not found", http.StatusNotFound)
 }
