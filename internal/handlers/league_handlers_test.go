@@ -46,17 +46,36 @@ func (m *mockLeagueDBService) GetDefaultTeams(ctx context.Context) ([]*models.Te
 }
 
 func (m *mockLeagueDBService) GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error) {
-	if leagueID == 1 {
+	switch leagueID {
+	case 1:
+		// For start league test, return created league; for advance week tests, we'll use league ID 3
 		return &models.League{
 			ID:          1,
 			Name:        "Test League",
-			Status:      "created",
+			Status:      "created", // Created league for start tests
 			CurrentWeek: 0,
 			CreatedAt:   time.Now(),
 		}, nil
+	case 2:
+		return &models.League{
+			ID:          2,
+			Name:        "Created League",
+			Status:      "created", // Not started league for testing
+			CurrentWeek: 0,
+			CreatedAt:   time.Now(),
+		}, nil
+	case 3:
+		return &models.League{
+			ID:          3,
+			Name:        "Started League",
+			Status:      "started", // Started league for advance week tests
+			CurrentWeek: 0,
+			CreatedAt:   time.Now(),
+		}, nil
+	default:
+		// Return error for any other ID to simulate not found
+		return nil, fmt.Errorf("no rows in result set")
 	}
-	// Return error for any other ID to simulate not found
-	return nil, fmt.Errorf("no rows in result set")
 }
 
 func (m *mockLeagueDBService) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error {
@@ -113,6 +132,48 @@ func (m *mockLeagueDBService) CreateMatch(ctx context.Context, match *models.Mat
 
 func (m *mockLeagueDBService) UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error {
 	if leagueID == 1 {
+		return nil // Successful update
+	}
+	return fmt.Errorf("no league found with ID %d", leagueID)
+}
+
+func (m *mockLeagueDBService) GetMatchesByWeekAndLeague(ctx context.Context, leagueID, week int) ([]*models.Match, error) {
+	if leagueID == 3 && week == 1 {
+		// Return matches for week 1 for started league (ID 3)
+		return []*models.Match{
+			{
+				ID:         1,
+				LeagueID:   3,
+				HomeTeamID: 1,
+				AwayTeamID: 2,
+				Week:       1,
+				Status:     "scheduled",
+			},
+		}, nil
+	}
+	if leagueID == 3 && week == 2 {
+		// No matches for week 2 (league finished)
+		return []*models.Match{}, nil
+	}
+	return nil, fmt.Errorf("no matches found for league %d week %d", leagueID, week)
+}
+
+func (m *mockLeagueDBService) PlayMatch(ctx context.Context, matchID, homeGoals, awayGoals int) error {
+	if matchID == 1 {
+		return nil // Successful update
+	}
+	return fmt.Errorf("no scheduled match found with ID %d", matchID)
+}
+
+func (m *mockLeagueDBService) UpdateStandings(ctx context.Context, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error {
+	if leagueID == 1 || leagueID == 3 {
+		return nil // Successful update
+	}
+	return fmt.Errorf("failed to update standings")
+}
+
+func (m *mockLeagueDBService) AdvanceLeagueWeek(ctx context.Context, leagueID int) error {
+	if leagueID == 1 || leagueID == 3 {
 		return nil // Successful update
 	}
 	return fmt.Errorf("no league found with ID %d", leagueID)
@@ -623,6 +684,104 @@ func TestStartLeagueHandler_InvalidPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	handler.StartLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestAdvanceWeekHandler(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/advance-week/3", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp models.AdvanceWeekResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify response data
+	if resp.League.ID != 3 {
+		t.Errorf("Expected league ID 3, got %d", resp.League.ID)
+	}
+	if resp.WeekAdvanced != 1 {
+		t.Errorf("Expected week advanced 1, got %d", resp.WeekAdvanced)
+	}
+	if len(resp.MatchesPlayed) != 1 {
+		t.Errorf("Expected 1 match played, got %d", len(resp.MatchesPlayed))
+	}
+	if resp.Message == "" {
+		t.Error("Expected non-empty message")
+	}
+}
+
+func TestAdvanceWeekHandler_LeagueNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/advance-week/99", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestAdvanceWeekHandler_LeagueNotStarted(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/advance-week/2", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestAdvanceWeekHandler_InvalidLeagueID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/advance-week/abc", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestAdvanceWeekHandler_InvalidMethod(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/leagues/advance-week/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	}
+}
+
+func TestAdvanceWeekHandler_InvalidPath(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/advance-week", nil)
+	w := httptest.NewRecorder()
+
+	handler.AdvanceWeekHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)

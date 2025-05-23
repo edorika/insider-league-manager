@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"insider-league-manager/internal/database"
 	"insider-league-manager/internal/models"
@@ -504,4 +507,308 @@ func (lh *LeagueHandler) calculateTotalWeeks(numTeams int) int {
 	// First half: (n-1) weeks, Second half: (n-1) weeks
 	// Total: 2 * (n-1) weeks
 	return 2 * (numTeams - 1)
+}
+
+// AdvanceWeekHandler handles POST /api/leagues/advance-week/:leagueID
+func (lh *LeagueHandler) AdvanceWeekHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 4 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "advance-week" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists and get its current state
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Check if league is in correct status to advance
+	if league.Status != "started" {
+		http.Error(w, fmt.Sprintf("League must be 'started' to advance weeks. Current status: %s", league.Status), http.StatusBadRequest)
+		return
+	}
+
+	// 3. Calculate which week to play (current_week + 1)
+	weekToPlay := league.CurrentWeek + 1
+
+	// 4. Get all matches for the week to be played
+	matches, err := lh.db.GetMatchesByWeekAndLeague(ctx, leagueID, weekToPlay)
+	if err != nil {
+		log.Printf("Failed to get matches for league %d week %d: %v", leagueID, weekToPlay, err)
+		http.Error(w, "Failed to get matches for the week", http.StatusInternalServerError)
+		return
+	}
+
+	// 5. If no matches for this week, the league might be finished
+	if len(matches) == 0 {
+		http.Error(w, "No matches found for the next week. League may be finished.", http.StatusBadRequest)
+		return
+	}
+
+	// 6. Play all matches for this week
+	var matchResults []models.MatchResult
+	for _, match := range matches {
+		// DEBUG: Log match status before playing
+		log.Printf("DEBUG: Playing match ID %d, status: %s, home_goals: %v, away_goals: %v",
+			match.ID, match.Status, match.HomeGoals, match.AwayGoals)
+
+		// Generate match result based on team strengths
+		homeGoals, awayGoals := lh.generateMatchResult(match.HomeTeamID, match.AwayTeamID)
+		log.Printf("DEBUG: Generated result for match %d: %d-%d", match.ID, homeGoals, awayGoals)
+
+		// Update match in database
+		if err := lh.db.PlayMatch(ctx, match.ID, homeGoals, awayGoals); err != nil {
+			log.Printf("Failed to play match %d: %v", match.ID, err)
+			http.Error(w, "Failed to play matches", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("DEBUG: Successfully updated match %d in database with %d-%d", match.ID, homeGoals, awayGoals)
+
+		// Update standings
+		if err := lh.db.UpdateStandings(ctx, leagueID, match.HomeTeamID, match.AwayTeamID, homeGoals, awayGoals); err != nil {
+			log.Printf("Failed to update standings for match %d: %v", match.ID, err)
+			http.Error(w, "Failed to update standings", http.StatusInternalServerError)
+			return
+		}
+
+		// Get team names for response
+		homeTeam, err := lh.db.GetTeamByID(ctx, match.HomeTeamID)
+		if err != nil {
+			log.Printf("Failed to get home team %d: %v", match.HomeTeamID, err)
+			http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+			return
+		}
+
+		awayTeam, err := lh.db.GetTeamByID(ctx, match.AwayTeamID)
+		if err != nil {
+			log.Printf("Failed to get away team %d: %v", match.AwayTeamID, err)
+			http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+			return
+		}
+
+		// Update match object with played results for response
+		match.HomeGoals = &homeGoals
+		match.AwayGoals = &awayGoals
+		match.Status = "played"
+		log.Printf("DEBUG: Match object updated for response: %d-%d", *match.HomeGoals, *match.AwayGoals)
+
+		// Create match result for response
+		matchResult := models.MatchResult{
+			Match:    *match,
+			HomeTeam: homeTeam.Name,
+			AwayTeam: awayTeam.Name,
+			Result:   fmt.Sprintf("%d-%d", homeGoals, awayGoals),
+		}
+		matchResults = append(matchResults, matchResult)
+	}
+
+	// 7. Advance the league week
+	if err := lh.db.AdvanceLeagueWeek(ctx, leagueID); err != nil {
+		log.Printf("Failed to advance league %d week: %v", leagueID, err)
+		http.Error(w, "Failed to advance league week", http.StatusInternalServerError)
+		return
+	}
+
+	// 8. Check if league is finished (no more matches)
+	nextWeek := weekToPlay + 1
+	nextWeekMatches, err := lh.db.GetMatchesByWeekAndLeague(ctx, leagueID, nextWeek)
+	if err != nil {
+		log.Printf("Failed to check next week matches: %v", err)
+		// Continue anyway, this is not critical
+	}
+
+	// If no matches next week, mark league as finished
+	if len(nextWeekMatches) == 0 {
+		if err := lh.db.UpdateLeagueStatus(ctx, leagueID, "finished"); err != nil {
+			log.Printf("Failed to mark league as finished: %v", err)
+			// Continue anyway, this is not critical
+		}
+		league.Status = "finished"
+	}
+
+	// Update league current week for response
+	league.CurrentWeek = weekToPlay
+
+	// Create response
+	resp := models.AdvanceWeekResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      league.Status,
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		WeekAdvanced:  weekToPlay,
+		MatchesPlayed: matchResults,
+		Message:       fmt.Sprintf("League '%s' advanced to week %d. %d matches played.", league.Name, weekToPlay, len(matchResults)),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
+// generateMatchResult simulates a football match using team strengths to influence the result
+func (lh *LeagueHandler) generateMatchResult(homeTeamID, awayTeamID int) (int, int) {
+	// Get team strengths (we already validated teams exist earlier in the flow)
+	homeTeam, err := lh.db.GetTeamByID(context.Background(), homeTeamID)
+	if err != nil {
+		// Fallback to basic random if we can't get team info
+		return lh.basicRandomGoals(), lh.basicRandomGoals()
+	}
+
+	awayTeam, err := lh.db.GetTeamByID(context.Background(), awayTeamID)
+	if err != nil {
+		// Fallback to basic random if we can't get team info
+		return lh.basicRandomGoals(), lh.basicRandomGoals()
+	}
+
+	// Simulate match based on team strengths
+	log.Printf("DEBUG: Team strengths - Home: %s (%d), Away: %s (%d)", homeTeam.Name, homeTeam.Strength, awayTeam.Name, awayTeam.Strength)
+	return lh.simulateMatch(homeTeam.Strength, awayTeam.Strength)
+}
+
+// simulateMatch generates realistic match results based on team strengths
+func (lh *LeagueHandler) simulateMatch(homeStrength, awayStrength int) (int, int) {
+	// Add home advantage (typically 3-5 points)
+	homeAdvantage := 4
+	adjustedHomeStrength := homeStrength + homeAdvantage
+
+	// Calculate strength difference (-100 to +100 range)
+	strengthDiff := adjustedHomeStrength - awayStrength
+
+	// Generate base goal expectancy based on strength (1.0 to 3.0 goals per team on average)
+	homeGoalExpectancy := 1.5 + float64(strengthDiff)/100.0 // Stronger teams score more
+	awayGoalExpectancy := 1.5 - float64(strengthDiff)/100.0 // Weaker teams score less
+
+	// Ensure reasonable bounds (0.5 to 3.0 goals expectancy)
+	if homeGoalExpectancy < 0.5 {
+		homeGoalExpectancy = 0.5
+	}
+	if homeGoalExpectancy > 3.0 {
+		homeGoalExpectancy = 3.0
+	}
+	if awayGoalExpectancy < 0.5 {
+		awayGoalExpectancy = 0.5
+	}
+	if awayGoalExpectancy > 3.0 {
+		awayGoalExpectancy = 3.0
+	}
+
+	// Debug expectancy calculations
+	log.Printf("DEBUG: Expectancy - Home: %.2f, Away: %.2f (strengthDiff: %d)", homeGoalExpectancy, awayGoalExpectancy, strengthDiff)
+
+	// Use Poisson-like distribution for goal generation
+	homeGoals := lh.generateGoalsFromExpectancy(homeGoalExpectancy)
+	awayGoals := lh.generateGoalsFromExpectancy(awayGoalExpectancy)
+
+	log.Printf("DEBUG: Final goals - Home: %d, Away: %d", homeGoals, awayGoals)
+	return homeGoals, awayGoals
+}
+
+// generateGoalsFromExpectancy generates goals using weighted probability based on expectancy
+func (lh *LeagueHandler) generateGoalsFromExpectancy(expectancy float64) int {
+	// Use time-based seed with microseconds for better randomness
+	rand.Seed(time.Now().UnixNano())
+
+	// Generate a random number 0-99 for easier probability calculation
+	randNum := rand.Intn(100)
+
+	// Debug the inputs and random number
+	log.Printf("DEBUG: generateGoalsFromExpectancy called with expectancy=%.2f, randNum=%d", expectancy, randNum)
+
+	var goals int
+
+	// Simpler probability distribution based on expectancy
+	if expectancy <= 1.0 {
+		// Low scoring team: mostly 0-1 goals
+		if randNum < 50 {
+			goals = 0
+		} else if randNum < 85 {
+			goals = 1
+		} else if randNum < 95 {
+			goals = 2
+		} else {
+			goals = 3
+		}
+	} else if expectancy <= 2.0 {
+		// Medium scoring team: balanced scoring
+		if randNum < 25 {
+			goals = 0
+		} else if randNum < 50 {
+			goals = 1
+		} else if randNum < 75 {
+			goals = 2
+		} else if randNum < 90 {
+			goals = 3
+		} else if randNum < 97 {
+			goals = 4
+		} else {
+			goals = 5
+		}
+	} else {
+		// High scoring team: more goals likely
+		if randNum < 15 {
+			goals = 0
+		} else if randNum < 30 {
+			goals = 1
+		} else if randNum < 50 {
+			goals = 2
+		} else if randNum < 70 {
+			goals = 3
+		} else if randNum < 85 {
+			goals = 4
+		} else if randNum < 95 {
+			goals = 5
+		} else {
+			goals = 6
+		}
+	}
+
+	log.Printf("DEBUG: generateGoalsFromExpectancy returning %d goals", goals)
+	return goals
+}
+
+// basicRandomGoals generates basic random goals as fallback
+func (lh *LeagueHandler) basicRandomGoals() int {
+	rand.Seed(time.Now().UnixNano())
+	randInt := rand.Intn(100)
+
+	if randInt < 30 {
+		return 0
+	} else if randInt < 55 {
+		return 1
+	} else if randInt < 75 {
+		return 2
+	} else if randInt < 90 {
+		return 3
+	} else if randInt < 97 {
+		return 4
+	} else {
+		return 5
+	}
 }

@@ -95,3 +95,19 @@ type StartLeagueResponse struct {
 	TotalWeeks   int            `json:"total_weeks"`
 	Message      string         `json:"message"`
 }
+
+// MatchResult represents a played match result
+type MatchResult struct {
+	Match    Match  `json:"match"`
+	HomeTeam string `json:"home_team"`
+	AwayTeam string `json:"away_team"`
+	Result   string `json:"result"` // e.g. "3-1", "2-2"
+}
+
+// AdvanceWeekResponse represents the response for advancing a league week
+type AdvanceWeekResponse struct {
+	League        LeagueResponse `json:"league"`
+	WeekAdvanced  int            `json:"week_advanced"` // The week that was just played
+	MatchesPlayed []MatchResult  `json:"matches_played"`
+	Message       string         `json:"message"`
+}

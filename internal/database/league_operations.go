@@ -256,3 +256,162 @@ func (s *service) UpdateLeagueStatus(ctx context.Context, leagueID int, status s
 
 	return nil
 }
+
+// GetMatchesByWeekAndLeague retrieves matches for a specific league and week
+func (s *service) GetMatchesByWeekAndLeague(ctx context.Context, leagueID, week int) ([]*models.Match, error) {
+	query := `
+		SELECT id, league_id, home_team_id, away_team_id, week, home_goals, away_goals, status, played_at, created_at
+		FROM matches 
+		WHERE league_id = $1 AND week = $2
+		ORDER BY id
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, leagueID, week)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query matches for league %d week %d: %w", leagueID, week, err)
+	}
+	defer rows.Close()
+
+	var matches []*models.Match
+	for rows.Next() {
+		match := &models.Match{}
+		err := rows.Scan(
+			&match.ID,
+			&match.LeagueID,
+			&match.HomeTeamID,
+			&match.AwayTeamID,
+			&match.Week,
+			&match.HomeGoals,
+			&match.AwayGoals,
+			&match.Status,
+			&match.PlayedAt,
+			&match.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan match: %w", err)
+		}
+		matches = append(matches, match)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over matches: %w", err)
+	}
+
+	return matches, nil
+}
+
+// PlayMatch updates a match with results and marks it as played
+func (s *service) PlayMatch(ctx context.Context, matchID, homeGoals, awayGoals int) error {
+	updateQuery := `
+		UPDATE matches 
+		SET home_goals = $1, away_goals = $2, status = 'played', played_at = NOW()
+		WHERE id = $3
+	`
+
+	result, err := s.db.ExecContext(ctx, updateQuery, homeGoals, awayGoals, matchID)
+	if err != nil {
+		return fmt.Errorf("failed to update match %d: %w", matchID, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after updating match %d: %w", matchID, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no match found with ID %d", matchID)
+	}
+
+	return nil
+}
+
+// UpdateStandings updates team standings after a match
+func (s *service) UpdateStandings(ctx context.Context, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error {
+	// Determine match result
+	var homePoints, awayPoints int
+	var homeWins, homeDraws, homeLosses int
+	var awayWins, awayDraws, awayLosses int
+
+	if homeGoals > awayGoals {
+		// Home team wins
+		homePoints = 3
+		awayPoints = 0
+		homeWins = 1
+		awayLosses = 1
+	} else if homeGoals < awayGoals {
+		// Away team wins
+		homePoints = 0
+		awayPoints = 3
+		homeLosses = 1
+		awayWins = 1
+	} else {
+		// Draw
+		homePoints = 1
+		awayPoints = 1
+		homeDraws = 1
+		awayDraws = 1
+	}
+
+	// Update home team standings
+	homeUpdateQuery := `
+		UPDATE standings 
+		SET points = points + $1,
+		    played = played + 1,
+		    wins = wins + $2,
+		    draws = draws + $3,
+		    losses = losses + $4,
+		    goals_for = goals_for + $5,
+		    goals_against = goals_against + $6,
+		    goal_difference = goals_for + $5 - (goals_against + $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err := s.db.ExecContext(ctx, homeUpdateQuery,
+		homePoints, homeWins, homeDraws, homeLosses, homeGoals, awayGoals, leagueID, homeTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to update home team %d standings: %w", homeTeamID, err)
+	}
+
+	// Update away team standings
+	awayUpdateQuery := `
+		UPDATE standings 
+		SET points = points + $1,
+		    played = played + 1,
+		    wins = wins + $2,
+		    draws = draws + $3,
+		    losses = losses + $4,
+		    goals_for = goals_for + $5,
+		    goals_against = goals_against + $6,
+		    goal_difference = goals_for + $5 - (goals_against + $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err = s.db.ExecContext(ctx, awayUpdateQuery,
+		awayPoints, awayWins, awayDraws, awayLosses, awayGoals, homeGoals, leagueID, awayTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to update away team %d standings: %w", awayTeamID, err)
+	}
+
+	return nil
+}
+
+// AdvanceLeagueWeek increments the current week of a league
+func (s *service) AdvanceLeagueWeek(ctx context.Context, leagueID int) error {
+	updateQuery := `UPDATE leagues SET current_week = current_week + 1 WHERE id = $1`
+
+	result, err := s.db.ExecContext(ctx, updateQuery, leagueID)
+	if err != nil {
+		return fmt.Errorf("failed to advance week for league %d: %w", leagueID, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after advancing league %d week: %w", leagueID, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no league found with ID %d", leagueID)
+	}
+
+	return nil
+}

@@ -69,6 +69,18 @@ type Service interface {
 
 	// UpdateLeagueStatus updates the status of a league
 	UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error
+
+	// GetMatchesByWeekAndLeague retrieves matches for a specific league and week
+	GetMatchesByWeekAndLeague(ctx context.Context, leagueID, week int) ([]*models.Match, error)
+
+	// PlayMatch updates a match with results and marks it as played
+	PlayMatch(ctx context.Context, matchID, homeGoals, awayGoals int) error
+
+	// UpdateStandings updates team standings after a match
+	UpdateStandings(ctx context.Context, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error
+
+	// AdvanceLeagueWeek increments the current week of a league
+	AdvanceLeagueWeek(ctx context.Context, leagueID int) error
 }
 
 type service struct {

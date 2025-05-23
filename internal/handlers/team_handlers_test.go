@@ -150,6 +150,22 @@ func (m *mockDBService) UpdateLeagueStatus(ctx context.Context, leagueID int, st
 	return fmt.Errorf("no league found with ID %d", leagueID)
 }
 
+func (m *mockDBService) GetMatchesByWeekAndLeague(ctx context.Context, leagueID, week int) ([]*models.Match, error) {
+	return []*models.Match{}, nil
+}
+
+func (m *mockDBService) PlayMatch(ctx context.Context, matchID, homeGoals, awayGoals int) error {
+	return nil
+}
+
+func (m *mockDBService) UpdateStandings(ctx context.Context, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error {
+	return nil
+}
+
+func (m *mockDBService) AdvanceLeagueWeek(ctx context.Context, leagueID int) error {
+	return nil
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 
