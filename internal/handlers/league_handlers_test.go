@@ -59,6 +59,34 @@ func (m *mockLeagueDBService) GetLeagueByID(ctx context.Context, leagueID int) (
 	return nil, fmt.Errorf("no rows in result set")
 }
 
+func (m *mockLeagueDBService) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error {
+	// Simulate that team 1 is in league 1, others are not
+	if leagueID == 1 && teamID == 1 {
+		return nil // Successful removal
+	}
+	// Return error for any other combination to simulate team not in league
+	return fmt.Errorf("team %d is not in league %d", teamID, leagueID)
+}
+
+func (m *mockLeagueDBService) GetTeamByID(ctx context.Context, teamID int) (*models.Team, error) {
+	if teamID == 1 {
+		return &models.Team{
+			ID:       1,
+			Name:     "Team A",
+			Strength: 85,
+		}, nil
+	}
+	if teamID == 2 {
+		return &models.Team{
+			ID:       2,
+			Name:     "Team B",
+			Strength: 90,
+		}, nil
+	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
+}
+
 func TestCreateLeagueHandler(t *testing.T) {
 	handler := NewLeagueHandler(&mockLeagueDBService{})
 
@@ -354,6 +382,127 @@ func TestAddTeamToLeagueHandler_InvalidPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/1/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Parse response
+	var resp models.RemoveTeamFromLeagueResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify response data
+	if resp.League.ID != 1 {
+		t.Errorf("Expected league ID 1, got %d", resp.League.ID)
+	}
+	if resp.Team.ID != 1 {
+		t.Errorf("Expected team ID 1, got %d", resp.Team.ID)
+	}
+	if resp.Message == "" {
+		t.Error("Expected non-empty message")
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_TeamNotInLeague(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/1/2", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_LeagueNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/99/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_TeamNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/1/99", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_InvalidLeagueID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/abc/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_InvalidTeamID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/1/abc", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_InvalidMethod(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/leagues/remove-team/1/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	}
+}
+
+func TestRemoveTeamFromLeagueHandler_InvalidPath(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/remove-team/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.RemoveTeamFromLeagueHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)

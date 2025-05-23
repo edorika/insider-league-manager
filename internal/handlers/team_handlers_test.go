@@ -116,6 +116,15 @@ func (m *mockDBService) GetLeagueByID(ctx context.Context, leagueID int) (*model
 	return nil, fmt.Errorf("no rows in result set")
 }
 
+func (m *mockDBService) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error {
+	// Simulate that team 1 is in league 1, others are not
+	if leagueID == 1 && teamID == 1 {
+		return nil // Successful removal
+	}
+	// Return error for any other combination to simulate team not in league
+	return fmt.Errorf("team %d is not in league %d", teamID, leagueID)
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 

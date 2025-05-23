@@ -57,6 +57,9 @@ type Service interface {
 
 	// GetLeagueByID retrieves a league by its ID
 	GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error)
+
+	// RemoveTeamFromLeague removes a team from a league
+	RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error
 }
 
 type service struct {

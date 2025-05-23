@@ -79,3 +79,10 @@ type AddTeamToLeagueResponse struct {
 	Team    Team           `json:"team"`
 	Message string         `json:"message"`
 }
+
+// RemoveTeamFromLeagueResponse represents the response for removing a team from a league
+type RemoveTeamFromLeagueResponse struct {
+	League  LeagueResponse `json:"league"`
+	Team    Team           `json:"team"`
+	Message string         `json:"message"`
+}

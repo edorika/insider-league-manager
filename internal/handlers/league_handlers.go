@@ -238,3 +238,91 @@ func (lh *LeagueHandler) AddTeamToLeagueHandler(w http.ResponseWriter, r *http.R
 		log.Printf("Failed to encode response: %v", err)
 	}
 }
+
+// RemoveTeamFromLeagueHandler handles POST /api/leagues/remove-team/:leagueID/:teamID
+func (lh *LeagueHandler) RemoveTeamFromLeagueHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID and teamID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 5 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "remove-team" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	teamID, err := strconv.Atoi(pathParts[4])
+	if err != nil {
+		http.Error(w, "Invalid team ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Validate team exists
+	team, err := lh.db.GetTeamByID(ctx, teamID)
+	if err != nil {
+		log.Printf("Failed to get team by ID %d: %v", teamID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Team not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get team", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 3. Remove team from league
+	if err := lh.db.RemoveTeamFromLeague(ctx, leagueID, teamID); err != nil {
+		log.Printf("Failed to remove team %d from league %d: %v", teamID, leagueID, err)
+		if strings.Contains(err.Error(), "is not in league") {
+			http.Error(w, "Team is not in this league", http.StatusBadRequest)
+		} else {
+			http.Error(w, "Failed to remove team from league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Create response
+	resp := models.RemoveTeamFromLeagueResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      league.Status,
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		Team: models.Team{
+			ID:       team.ID,
+			Name:     team.Name,
+			Strength: team.Strength,
+		},
+		Message: fmt.Sprintf("Team '%s' removed from league '%s' successfully", team.Name, league.Name),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}

@@ -125,3 +125,43 @@ func (s *service) GetLeagueByID(ctx context.Context, leagueID int) (*models.Leag
 
 	return league, nil
 }
+
+// RemoveTeamFromLeague removes a team from a league and their standings
+func (s *service) RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error {
+	// First, check if the team is actually in the league
+	var exists bool
+	checkQuery := `SELECT EXISTS(SELECT 1 FROM league_teams WHERE league_id = $1 AND team_id = $2)`
+	err := s.db.QueryRowContext(ctx, checkQuery, leagueID, teamID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check if team %d exists in league %d: %w", teamID, leagueID, err)
+	}
+
+	if !exists {
+		return fmt.Errorf("team %d is not in league %d", teamID, leagueID)
+	}
+
+	// Remove from standings first (due to foreign key constraints)
+	deleteStandingsQuery := `DELETE FROM standings WHERE league_id = $1 AND team_id = $2`
+	_, err = s.db.ExecContext(ctx, deleteStandingsQuery, leagueID, teamID)
+	if err != nil {
+		return fmt.Errorf("failed to remove standings for team %d in league %d: %w", teamID, leagueID, err)
+	}
+
+	// Remove from league_teams
+	deleteLeagueTeamQuery := `DELETE FROM league_teams WHERE league_id = $1 AND team_id = $2`
+	result, err := s.db.ExecContext(ctx, deleteLeagueTeamQuery, leagueID, teamID)
+	if err != nil {
+		return fmt.Errorf("failed to remove team %d from league %d: %w", teamID, leagueID, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after removing team %d from league %d: %w", teamID, leagueID, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no team found with ID %d in league %d", teamID, leagueID)
+	}
+
+	return nil
+}

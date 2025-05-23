@@ -23,6 +23,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/api/leagues/create", s.leaguesCreateHandler)
 	mux.HandleFunc("/api/leagues/initialize", s.leaguesInitializeHandler)
 	mux.HandleFunc("/api/leagues/add-team/", s.leaguesAddTeamHandler)
+	mux.HandleFunc("/api/leagues/remove-team/", s.leaguesRemoveTeamHandler)
 
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
@@ -137,4 +138,14 @@ func (s *Server) leaguesAddTeamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.leagueHandler.AddTeamToLeagueHandler(w, r)
+}
+
+// leaguesRemoveTeamHandler handles POST /api/leagues/remove-team/:leagueID/:teamID
+func (s *Server) leaguesRemoveTeamHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.RemoveTeamFromLeagueHandler(w, r)
 }
