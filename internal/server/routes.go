@@ -19,6 +19,9 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/api/teams", s.teamsHandler)
 	mux.HandleFunc("/api/teams/", s.teamsHandler) // Handle /api/teams/* patterns
 
+	// League routes
+	mux.HandleFunc("/api/leagues/create", s.leaguesCreateHandler)
+
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
 }
@@ -102,4 +105,14 @@ func (s *Server) teamsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// If we get here, the path doesn't match any known pattern
 	http.Error(w, "Not found", http.StatusNotFound)
+}
+
+// leaguesCreateHandler handles POST /api/leagues/create
+func (s *Server) leaguesCreateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.CreateLeagueHandler(w, r)
 }

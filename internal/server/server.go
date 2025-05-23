@@ -17,8 +17,9 @@ import (
 type Server struct {
 	port int
 
-	db          database.Service
-	teamHandler *handlers.TeamHandler
+	db            database.Service
+	teamHandler   *handlers.TeamHandler
+	leagueHandler *handlers.LeagueHandler
 }
 
 func NewServer() *http.Server {
@@ -35,9 +36,10 @@ func NewServer() *http.Server {
 	}
 
 	NewServer := &Server{
-		port:        port,
-		db:          db,
-		teamHandler: handlers.NewTeamHandler(db),
+		port:          port,
+		db:            db,
+		teamHandler:   handlers.NewTeamHandler(db),
+		leagueHandler: handlers.NewLeagueHandler(db),
 	}
 
 	// Declare Server config

@@ -42,6 +42,9 @@ type Service interface {
 
 	// DeleteTeam deletes a team from the database
 	DeleteTeam(ctx context.Context, teamID int) error
+
+	// CreateLeague creates a new league in the database
+	CreateLeague(ctx context.Context, req *models.CreateLeagueRequest) (*models.League, error)
 }
 
 type service struct {

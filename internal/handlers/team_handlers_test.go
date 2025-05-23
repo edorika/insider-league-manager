@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"insider-league-manager/internal/models"
 )
@@ -72,6 +73,16 @@ func (m *mockDBService) DeleteTeam(ctx context.Context, teamID int) error {
 	}
 	// Return error for any other ID to simulate not found
 	return fmt.Errorf("no team found with ID %d", teamID)
+}
+
+func (m *mockDBService) CreateLeague(ctx context.Context, req *models.CreateLeagueRequest) (*models.League, error) {
+	return &models.League{
+		ID:          1,
+		Name:        req.Name,
+		Status:      "created",
+		CurrentWeek: 0,
+		CreatedAt:   time.Now(),
+	}, nil
 }
 
 func TestCreateTeamHandler(t *testing.T) {
