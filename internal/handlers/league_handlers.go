@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"insider-league-manager/internal/database"
@@ -137,6 +138,97 @@ func (lh *LeagueHandler) InitializeLeagueHandler(w http.ResponseWriter, r *http.
 		},
 		Teams:   teamResponses,
 		Message: fmt.Sprintf("League '%s' initialized successfully with %d teams", league.Name, len(teams)),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
+// AddTeamToLeagueHandler handles POST /api/leagues/add-team/:leagueID/:teamID
+func (lh *LeagueHandler) AddTeamToLeagueHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID and teamID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 5 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "add-team" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	teamID, err := strconv.Atoi(pathParts[4])
+	if err != nil {
+		http.Error(w, "Invalid team ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Validate team exists
+	team, err := lh.db.GetTeamByID(ctx, teamID)
+	if err != nil {
+		log.Printf("Failed to get team by ID %d: %v", teamID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Team not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get team", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 3. Add team to league
+	if err := lh.db.AddTeamToLeague(ctx, leagueID, teamID); err != nil {
+		log.Printf("Failed to add team %d to league %d: %v", teamID, leagueID, err)
+		http.Error(w, "Failed to add team to league", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Initialize standings for the team
+	if err := lh.db.InitializeStanding(ctx, leagueID, teamID); err != nil {
+		log.Printf("Failed to initialize standing for team %d in league %d: %v", teamID, leagueID, err)
+		http.Error(w, "Failed to initialize standings", http.StatusInternalServerError)
+		return
+	}
+
+	// Create response
+	resp := models.AddTeamToLeagueResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      league.Status,
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		Team: models.Team{
+			ID:       team.ID,
+			Name:     team.Name,
+			Strength: team.Strength,
+		},
+		Message: fmt.Sprintf("Team '%s' added to league '%s' successfully", team.Name, league.Name),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

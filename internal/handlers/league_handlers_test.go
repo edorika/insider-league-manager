@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,6 +43,20 @@ func (m *mockLeagueDBService) GetDefaultTeams(ctx context.Context) ([]*models.Te
 		{ID: 3, Name: "Chelsea FC", Strength: 84},
 		{ID: 4, Name: "Arsenal FC", Strength: 82},
 	}, nil
+}
+
+func (m *mockLeagueDBService) GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error) {
+	if leagueID == 1 {
+		return &models.League{
+			ID:          1,
+			Name:        "Test League",
+			Status:      "created",
+			CurrentWeek: 0,
+			CreatedAt:   time.Now(),
+		}, nil
+	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
 }
 
 func TestCreateLeagueHandler(t *testing.T) {
@@ -234,5 +249,113 @@ func TestInitializeLeagueHandler_InvalidMethod(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/1/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+	}
+
+	// Parse response
+	var resp models.AddTeamToLeagueResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify response data
+	if resp.League.ID != 1 {
+		t.Errorf("Expected league ID 1, got %d", resp.League.ID)
+	}
+	if resp.Team.ID != 1 {
+		t.Errorf("Expected team ID 1, got %d", resp.Team.ID)
+	}
+	if resp.Message == "" {
+		t.Error("Expected non-empty message")
+	}
+}
+
+func TestAddTeamToLeagueHandler_LeagueNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/99/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler_TeamNotFound(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/1/99", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler_InvalidLeagueID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/abc/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler_InvalidTeamID(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/1/abc", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler_InvalidMethod(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/leagues/add-team/1/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, w.Code)
+	}
+}
+
+func TestAddTeamToLeagueHandler_InvalidPath(t *testing.T) {
+	handler := NewLeagueHandler(&mockLeagueDBService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/leagues/add-team/1", nil)
+	w := httptest.NewRecorder()
+
+	handler.AddTeamToLeagueHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
 	}
 }

@@ -102,6 +102,20 @@ func (m *mockDBService) GetDefaultTeams(ctx context.Context) ([]*models.Team, er
 	}, nil
 }
 
+func (m *mockDBService) GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error) {
+	if leagueID == 1 {
+		return &models.League{
+			ID:          1,
+			Name:        "Test League",
+			Status:      "created",
+			CurrentWeek: 0,
+			CreatedAt:   time.Now(),
+		}, nil
+	}
+	// Return error for any other ID to simulate not found
+	return nil, fmt.Errorf("no rows in result set")
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 

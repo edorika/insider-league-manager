@@ -54,6 +54,9 @@ type Service interface {
 
 	// GetDefaultTeams retrieves the 4 default teams for league initialization
 	GetDefaultTeams(ctx context.Context) ([]*models.Team, error)
+
+	// GetLeagueByID retrieves a league by its ID
+	GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error)
 }
 
 type service struct {

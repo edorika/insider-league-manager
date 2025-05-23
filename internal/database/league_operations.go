@@ -105,3 +105,23 @@ func (s *service) InitializeStanding(ctx context.Context, leagueID, teamID int) 
 
 	return nil
 }
+
+// GetLeagueByID retrieves a league by its ID
+func (s *service) GetLeagueByID(ctx context.Context, leagueID int) (*models.League, error) {
+	query := `SELECT id, name, status, current_week, created_at FROM leagues WHERE id = $1`
+
+	league := &models.League{}
+	err := s.db.QueryRowContext(ctx, query, leagueID).Scan(
+		&league.ID,
+		&league.Name,
+		&league.Status,
+		&league.CurrentWeek,
+		&league.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get league by ID %d: %w", leagueID, err)
+	}
+
+	return league, nil
+}

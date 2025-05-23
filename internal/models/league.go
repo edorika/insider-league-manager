@@ -72,3 +72,10 @@ type InitializeLeagueResponse struct {
 	Teams   []Team         `json:"teams"`
 	Message string         `json:"message"`
 }
+
+// AddTeamToLeagueResponse represents the response for adding a team to a league
+type AddTeamToLeagueResponse struct {
+	League  LeagueResponse `json:"league"`
+	Team    Team           `json:"team"`
+	Message string         `json:"message"`
+}
