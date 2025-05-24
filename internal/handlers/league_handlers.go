@@ -960,6 +960,182 @@ func (lh *LeagueHandler) ViewMatchesHandler(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// PlayAllMatchesHandler handles POST /api/leagues/play-all-matches/:leagueID
+func (lh *LeagueHandler) PlayAllMatchesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 4 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "play-all-matches" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists and get its current state
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Check if league is in correct status to play matches
+	if league.Status != "started" {
+		http.Error(w, fmt.Sprintf("League must be 'started' to play matches. Current status: %s", league.Status), http.StatusBadRequest)
+		return
+	}
+
+	// 3. Calculate total weeks for this league
+	teams, err := lh.db.GetTeamsInLeague(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get teams in league %d: %v", leagueID, err)
+		http.Error(w, "Failed to get teams in league", http.StatusInternalServerError)
+		return
+	}
+
+	totalWeeks := lh.calculateTotalWeeks(len(teams))
+	startingWeek := league.CurrentWeek
+	var allMatchResults []models.WeekResult
+	weeksPlayed := 0
+
+	// 4. Play all remaining weeks
+	for currentWeek := league.CurrentWeek + 1; currentWeek <= totalWeeks; currentWeek++ {
+		// Get all matches for this week
+		matches, err := lh.db.GetMatchesByWeekAndLeague(ctx, leagueID, currentWeek)
+		if err != nil {
+			log.Printf("Failed to get matches for league %d week %d: %v", leagueID, currentWeek, err)
+			http.Error(w, "Failed to get matches for week", http.StatusInternalServerError)
+			return
+		}
+
+		// If no matches for this week, we're done
+		if len(matches) == 0 {
+			break
+		}
+
+		// Play all matches for this week
+		var weekMatchResults []models.MatchResult
+		for _, match := range matches {
+			// Generate match result based on team strengths
+			homeGoals, awayGoals := lh.generateMatchResult(match.HomeTeamID, match.AwayTeamID)
+			log.Printf("DEBUG: Generated result for match %d (week %d): %d-%d", match.ID, currentWeek, homeGoals, awayGoals)
+
+			// Update match in database
+			if err := lh.db.PlayMatch(ctx, match.ID, homeGoals, awayGoals); err != nil {
+				log.Printf("Failed to play match %d: %v", match.ID, err)
+				http.Error(w, "Failed to play matches", http.StatusInternalServerError)
+				return
+			}
+
+			// Update standings
+			if err := lh.db.UpdateStandings(ctx, leagueID, match.HomeTeamID, match.AwayTeamID, homeGoals, awayGoals); err != nil {
+				log.Printf("Failed to update standings for match %d: %v", match.ID, err)
+				http.Error(w, "Failed to update standings", http.StatusInternalServerError)
+				return
+			}
+
+			// Get team names for response
+			homeTeam, err := lh.db.GetTeamByID(ctx, match.HomeTeamID)
+			if err != nil {
+				log.Printf("Failed to get home team %d: %v", match.HomeTeamID, err)
+				http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+				return
+			}
+
+			awayTeam, err := lh.db.GetTeamByID(ctx, match.AwayTeamID)
+			if err != nil {
+				log.Printf("Failed to get away team %d: %v", match.AwayTeamID, err)
+				http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+				return
+			}
+
+			// Update match object with played results for response
+			match.HomeGoals = &homeGoals
+			match.AwayGoals = &awayGoals
+			match.Status = "played"
+
+			// Create match result for response
+			matchResult := models.MatchResult{
+				Match:    *match,
+				HomeTeam: homeTeam.Name,
+				AwayTeam: awayTeam.Name,
+				Result:   fmt.Sprintf("%d-%d", homeGoals, awayGoals),
+			}
+			weekMatchResults = append(weekMatchResults, matchResult)
+		}
+
+		// Add week result to all results
+		weekResult := models.WeekResult{
+			Week:    currentWeek,
+			Matches: weekMatchResults,
+		}
+		allMatchResults = append(allMatchResults, weekResult)
+
+		// Advance the league week
+		if err := lh.db.AdvanceLeagueWeek(ctx, leagueID); err != nil {
+			log.Printf("Failed to advance league %d week: %v", leagueID, err)
+			http.Error(w, "Failed to advance league week", http.StatusInternalServerError)
+			return
+		}
+
+		weeksPlayed++
+		league.CurrentWeek = currentWeek
+	}
+
+	// 5. Mark league as finished
+	if err := lh.db.UpdateLeagueStatus(ctx, leagueID, "finished"); err != nil {
+		log.Printf("Failed to mark league as finished: %v", err)
+		http.Error(w, "Failed to update league status", http.StatusInternalServerError)
+		return
+	}
+	league.Status = "finished"
+
+	// 6. Count total matches played
+	totalMatchesPlayed := 0
+	for _, weekResult := range allMatchResults {
+		totalMatchesPlayed += len(weekResult.Matches)
+	}
+
+	// 7. Create response
+	resp := models.PlayAllMatchesResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      league.Status,
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		StartingWeek:       startingWeek,
+		FinalWeek:          league.CurrentWeek,
+		WeeksPlayed:        weeksPlayed,
+		TotalMatchesPlayed: totalMatchesPlayed,
+		WeekResults:        allMatchResults,
+		Message:            fmt.Sprintf("League '%s' completed successfully. Played %d weeks with %d total matches.", league.Name, weeksPlayed, totalMatchesPlayed),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
 // basicRandomGoals generates basic random goals as fallback
 func (lh *LeagueHandler) basicRandomGoals() int {
 	rand.Seed(time.Now().UnixNano())

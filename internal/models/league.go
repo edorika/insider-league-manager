@@ -119,3 +119,20 @@ type ViewMatchesResponse struct {
 	Matches     []MatchResult  `json:"matches"`
 	Message     string         `json:"message"`
 }
+
+// WeekResult represents match results for a specific week
+type WeekResult struct {
+	Week    int           `json:"week"`
+	Matches []MatchResult `json:"matches"`
+}
+
+// PlayAllMatchesResponse represents the response for playing all remaining matches in a league
+type PlayAllMatchesResponse struct {
+	League             LeagueResponse `json:"league"`
+	StartingWeek       int            `json:"starting_week"`
+	FinalWeek          int            `json:"final_week"`
+	WeeksPlayed        int            `json:"weeks_played"`
+	TotalMatchesPlayed int            `json:"total_matches_played"`
+	WeekResults        []WeekResult   `json:"week_results"`
+	Message            string         `json:"message"`
+}
