@@ -136,3 +136,20 @@ type PlayAllMatchesResponse struct {
 	WeekResults        []WeekResult   `json:"week_results"`
 	Message            string         `json:"message"`
 }
+
+// ChampionProbability represents championship probability for a team
+type ChampionProbability struct {
+	TeamID      int     `json:"team_id"`
+	TeamName    string  `json:"team_name"`
+	Probability float64 `json:"probability"` // Percentage (0-100)
+}
+
+// PredictChampionResponse represents the response for championship prediction
+type PredictChampionResponse struct {
+	League                LeagueResponse        `json:"league"`
+	PredictionWeek        int                   `json:"prediction_week"`
+	Simulations           int                   `json:"simulations"`
+	CurrentStandings      []StandingWithTeam    `json:"current_standings"`
+	ChampionProbabilities []ChampionProbability `json:"champion_probabilities"`
+	Message               string                `json:"message"`
+}

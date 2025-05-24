@@ -28,6 +28,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/api/leagues/advance-week/", s.leaguesAdvanceWeekHandler)
 	mux.HandleFunc("/api/leagues/view-matches/", s.leaguesViewMatchesHandler)
 	mux.HandleFunc("/api/leagues/play-all-matches/", s.leaguesPlayAllMatchesHandler)
+	mux.HandleFunc("/api/leagues/predict-champion/", s.leaguesPredictChampionHandler)
 
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
@@ -192,4 +193,14 @@ func (s *Server) leaguesPlayAllMatchesHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	s.leagueHandler.PlayAllMatchesHandler(w, r)
+}
+
+// leaguesPredictChampionHandler handles GET /api/leagues/predict-champion/:leagueID
+func (s *Server) leaguesPredictChampionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.leagueHandler.PredictChampionHandler(w, r)
 }

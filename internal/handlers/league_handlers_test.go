@@ -179,6 +179,44 @@ func (m *mockLeagueDBService) AdvanceLeagueWeek(ctx context.Context, leagueID in
 	return fmt.Errorf("no league found with ID %d", leagueID)
 }
 
+func (m *mockLeagueDBService) GetStandings(ctx context.Context, leagueID int) ([]models.StandingWithTeam, error) {
+	if leagueID == 1 || leagueID == 3 {
+		return []models.StandingWithTeam{
+			{
+				Standing: models.Standing{
+					LeagueID:       leagueID,
+					TeamID:         1,
+					Points:         9,
+					Played:         3,
+					Wins:           3,
+					Draws:          0,
+					Losses:         0,
+					GoalsFor:       6,
+					GoalsAgainst:   2,
+					GoalDifference: 4,
+				},
+				TeamName: "Team A",
+			},
+			{
+				Standing: models.Standing{
+					LeagueID:       leagueID,
+					TeamID:         2,
+					Points:         6,
+					Played:         3,
+					Wins:           2,
+					Draws:          0,
+					Losses:         1,
+					GoalsFor:       4,
+					GoalsAgainst:   3,
+					GoalDifference: 1,
+				},
+				TeamName: "Team B",
+			},
+		}, nil
+	}
+	return nil, fmt.Errorf("no standings found for league %d", leagueID)
+}
+
 func TestCreateLeagueHandler(t *testing.T) {
 	handler := NewLeagueHandler(&mockLeagueDBService{})
 

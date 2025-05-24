@@ -415,3 +415,49 @@ func (s *service) AdvanceLeagueWeek(ctx context.Context, leagueID int) error {
 
 	return nil
 }
+
+// GetStandings retrieves league standings sorted by points and goal difference
+func (s *service) GetStandings(ctx context.Context, leagueID int) ([]models.StandingWithTeam, error) {
+	query := `
+		SELECT s.league_id, s.team_id, s.points, s.played, s.wins, s.draws, s.losses, 
+		       s.goals_for, s.goals_against, s.goal_difference, t.name as team_name
+		FROM standings s
+		INNER JOIN teams t ON s.team_id = t.id
+		WHERE s.league_id = $1
+		ORDER BY s.points DESC, s.goal_difference DESC, s.goals_for DESC, t.name ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, leagueID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query standings for league %d: %w", leagueID, err)
+	}
+	defer rows.Close()
+
+	var standings []models.StandingWithTeam
+	for rows.Next() {
+		var standing models.StandingWithTeam
+		err := rows.Scan(
+			&standing.LeagueID,
+			&standing.TeamID,
+			&standing.Points,
+			&standing.Played,
+			&standing.Wins,
+			&standing.Draws,
+			&standing.Losses,
+			&standing.GoalsFor,
+			&standing.GoalsAgainst,
+			&standing.GoalDifference,
+			&standing.TeamName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan standing: %w", err)
+		}
+		standings = append(standings, standing)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over standings: %w", err)
+	}
+
+	return standings, nil
+}

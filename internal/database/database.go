@@ -81,6 +81,9 @@ type Service interface {
 
 	// AdvanceLeagueWeek increments the current week of a league
 	AdvanceLeagueWeek(ctx context.Context, leagueID int) error
+
+	// GetStandings retrieves league standings sorted by points and goal difference
+	GetStandings(ctx context.Context, leagueID int) ([]models.StandingWithTeam, error)
 }
 
 type service struct {
