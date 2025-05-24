@@ -111,3 +111,11 @@ type AdvanceWeekResponse struct {
 	MatchesPlayed []MatchResult  `json:"matches_played"`
 	Message       string         `json:"message"`
 }
+
+// ViewMatchesResponse represents the response for viewing matches for the current week
+type ViewMatchesResponse struct {
+	League      LeagueResponse `json:"league"`
+	CurrentWeek int            `json:"current_week"`
+	Matches     []MatchResult  `json:"matches"`
+	Message     string         `json:"message"`
+}
