@@ -60,6 +60,27 @@ type Service interface {
 
 	// RemoveTeamFromLeague removes a team from a league
 	RemoveTeamFromLeague(ctx context.Context, leagueID, teamID int) error
+
+	// GetTeamsInLeague retrieves all teams that are part of a specific league
+	GetTeamsInLeague(ctx context.Context, leagueID int) ([]*models.Team, error)
+
+	// CreateMatch creates a new match in the database
+	CreateMatch(ctx context.Context, match *models.Match) (*models.Match, error)
+
+	// UpdateLeagueStatus updates the status of a league
+	UpdateLeagueStatus(ctx context.Context, leagueID int, status string) error
+
+	// GetMatchesByWeekAndLeague retrieves matches for a specific league and week
+	GetMatchesByWeekAndLeague(ctx context.Context, leagueID, week int) ([]*models.Match, error)
+
+	// PlayMatch updates a match with results and marks it as played
+	PlayMatch(ctx context.Context, matchID, homeGoals, awayGoals int) error
+
+	// UpdateStandings updates team standings after a match
+	UpdateStandings(ctx context.Context, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error
+
+	// AdvanceLeagueWeek increments the current week of a league
+	AdvanceLeagueWeek(ctx context.Context, leagueID int) error
 }
 
 type service struct {
