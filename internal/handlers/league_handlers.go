@@ -433,7 +433,7 @@ func (lh *LeagueHandler) StartLeagueHandler(w http.ResponseWriter, r *http.Reque
 }
 
 // generateRoundRobinMatches creates a Premier League style schedule where each team plays every other team twice (home and away)
-// First half: each team plays every other team once
+// First half: each team plays every other team once, properly distributed across weeks
 // Second half: each team plays every other team again with home/away reversed
 func (lh *LeagueHandler) generateRoundRobinMatches(teams []*models.Team, leagueID int) []models.Match {
 	var matches []models.Match
@@ -443,47 +443,40 @@ func (lh *LeagueHandler) generateRoundRobinMatches(teams []*models.Team, leagueI
 		return matches
 	}
 
-	week := 1
+	// For proper round-robin scheduling, we need to handle even and odd number of teams
+	if n%2 == 1 {
+		// Add a "bye" team for odd number of teams to make scheduling easier
+		byeTeam := &models.Team{ID: -1, Name: "BYE"}
+		teams = append(teams, byeTeam)
+		n = len(teams)
+	}
 
-	// First half of the season: each team plays every other team once
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			// Create match: team i at home vs team j away
-			match := models.Match{
-				LeagueID:   leagueID,
-				HomeTeamID: teams[i].ID,
-				AwayTeamID: teams[j].ID,
-				Week:       week,
-				Status:     "scheduled",
-			}
-			matches = append(matches, match)
+	var firstHalfMatches []models.Match
 
-			// Move to next week after scheduling matches
-			// For even number of teams, we can have n/2 matches per week
-			// For odd number of teams, we can have (n-1)/2 matches per week
-			matchesPerWeek := n / 2
-			if n%2 == 1 {
-				matchesPerWeek = (n - 1) / 2
+	// Generate first half using round-robin algorithm
+	// Each round has n/2 matches, and we need n-1 rounds for everyone to play everyone once
+	for round := 0; round < n-1; round++ {
+		weekMatches := lh.generateRoundMatches(teams, round)
+
+		for _, match := range weekMatches {
+			// Skip matches involving the "bye" team
+			if match.HomeTeamID == -1 || match.AwayTeamID == -1 {
+				continue
 			}
 
-			// Check if we should move to next week
-			if len(matches)%matchesPerWeek == 0 {
-				week++
-			}
+			match.LeagueID = leagueID
+			match.Week = round + 1
+			match.Status = "scheduled"
+			firstHalfMatches = append(firstHalfMatches, match)
 		}
 	}
 
-	// Calculate weeks for first half
-	firstHalfWeeks := week - 1
+	// Add first half matches to total
+	matches = append(matches, firstHalfMatches...)
 
-	// Second half of the season: reverse home/away for each first half match
-
-	// Create second half matches by reversing home/away from first half
-	firstHalfMatches := make([]models.Match, len(matches))
-	copy(firstHalfMatches, matches)
-
+	// Generate second half by reversing home/away for each first half match
+	firstHalfWeeks := n - 1
 	for _, firstHalfMatch := range firstHalfMatches {
-		// Create reverse fixture: away team becomes home, home team becomes away
 		reverseMatch := models.Match{
 			LeagueID:   leagueID,
 			HomeTeamID: firstHalfMatch.AwayTeamID,            // Swap home and away
@@ -492,6 +485,50 @@ func (lh *LeagueHandler) generateRoundRobinMatches(teams []*models.Team, leagueI
 			Status:     "scheduled",
 		}
 		matches = append(matches, reverseMatch)
+	}
+
+	return matches
+}
+
+// generateRoundMatches generates matches for a specific round using round-robin algorithm
+func (lh *LeagueHandler) generateRoundMatches(teams []*models.Team, round int) []models.Match {
+	var matches []models.Match
+	n := len(teams)
+
+	// In round-robin, team 0 is fixed, others rotate
+	// The algorithm pairs teams in a specific pattern for each round
+
+	for i := 0; i < n/2; i++ {
+		var homeTeam, awayTeam *models.Team
+
+		if i == 0 {
+			// Team 0 is always fixed
+			homeTeam = teams[0]
+			// The opponent rotates: in round r, team 0 plays team (r+1)
+			awayIndex := (round + 1) % (n - 1)
+			if awayIndex == 0 {
+				awayIndex = n - 1
+			}
+			awayTeam = teams[awayIndex]
+		} else {
+			// For other matches, calculate the pairing
+			homeIndex := ((round - i + n - 1) % (n - 1)) + 1
+			awayIndex := ((round + i) % (n - 1)) + 1
+
+			homeTeam = teams[homeIndex]
+			awayTeam = teams[awayIndex]
+		}
+
+		// Alternate home/away advantage across rounds
+		if round%2 == 1 && i > 0 {
+			homeTeam, awayTeam = awayTeam, homeTeam
+		}
+
+		match := models.Match{
+			HomeTeamID: homeTeam.ID,
+			AwayTeamID: awayTeam.ID,
+		}
+		matches = append(matches, match)
 	}
 
 	return matches
