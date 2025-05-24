@@ -1,4 +1,5 @@
 services:
+  # Database service
   psql_bp:
     image: postgres:latest
     restart: unless-stopped
@@ -7,9 +8,42 @@ services:
       POSTGRES_USER: ${BLUEPRINT_DB_USERNAME}
       POSTGRES_PASSWORD: ${BLUEPRINT_DB_PASSWORD}
     ports:
-      - "${BLUEPRINT_DB_PORT}:5432"
+      - "${BLUEPRINT_DB_PORT:-5432}:5432"
     volumes:
       - psql_volume_bp:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BLUEPRINT_DB_USERNAME} -d ${BLUEPRINT_DB_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Go application service  
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      BLUEPRINT_DB_HOST: psql_bp
+      BLUEPRINT_DB_PORT: 5432
+      BLUEPRINT_DB_DATABASE: ${BLUEPRINT_DB_DATABASE}
+      BLUEPRINT_DB_USERNAME: ${BLUEPRINT_DB_USERNAME}
+      BLUEPRINT_DB_PASSWORD: ${BLUEPRINT_DB_PASSWORD}
+      BLUEPRINT_DB_SCHEMA: ${BLUEPRINT_DB_SCHEMA}
+      PORT: ${PORT:-8080}
+    depends_on:
+      psql_bp:
+        condition: service_healthy
+    networks:
+      - app-network
 
 volumes:
   psql_volume_bp:
+
+networks:
+  app-network:
+    driver: bridge
