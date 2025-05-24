@@ -1406,6 +1406,128 @@ func (lh *LeagueHandler) updateStandingsInMemory(standings map[int]*models.Stand
 	}
 }
 
+// EditMatchHandler handles POST /api/leagues/edit-match/:matchID
+func (lh *LeagueHandler) EditMatchHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract matchID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 4 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "edit-match" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	matchID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid match ID", http.StatusBadRequest)
+		return
+	}
+
+	// Parse request body
+	var req models.EditMatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// Validate input
+	if req.HomeGoals < 0 || req.AwayGoals < 0 {
+		http.Error(w, "Goals cannot be negative", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get the original match to show previous result
+	originalMatch, err := lh.db.GetMatchByID(ctx, matchID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows in result set") {
+			http.Error(w, "Match not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Failed to get match by ID %d: %v", matchID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if match has been played and has results
+	if originalMatch.Status != "played" {
+		http.Error(w, fmt.Sprintf("Can only edit played matches. Current status: %s", originalMatch.Status), http.StatusBadRequest)
+		return
+	}
+
+	if originalMatch.HomeGoals == nil || originalMatch.AwayGoals == nil {
+		http.Error(w, "Match has no existing result to edit", http.StatusBadRequest)
+		return
+	}
+
+	// Store previous result for response
+	previousResult := fmt.Sprintf("%d-%d", *originalMatch.HomeGoals, *originalMatch.AwayGoals)
+	newResult := fmt.Sprintf("%d-%d", req.HomeGoals, req.AwayGoals)
+
+	// Check if the new result is actually different
+	if *originalMatch.HomeGoals == req.HomeGoals && *originalMatch.AwayGoals == req.AwayGoals {
+		http.Error(w, "New result is the same as the current result", http.StatusBadRequest)
+		return
+	}
+
+	// Update the match result and standings
+	err = lh.db.EditMatch(ctx, matchID, req.HomeGoals, req.AwayGoals)
+	if err != nil {
+		log.Printf("Failed to edit match %d: %v", matchID, err)
+		http.Error(w, "Failed to edit match result", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the updated match for response
+	updatedMatch, err := lh.db.GetMatchByID(ctx, matchID)
+	if err != nil {
+		log.Printf("Failed to get updated match %d: %v", matchID, err)
+		http.Error(w, "Failed to retrieve updated match", http.StatusInternalServerError)
+		return
+	}
+
+	// Get team names for the response
+	homeTeam, err := lh.db.GetTeamByID(ctx, updatedMatch.HomeTeamID)
+	if err != nil {
+		log.Printf("Failed to get home team %d: %v", updatedMatch.HomeTeamID, err)
+		http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+		return
+	}
+
+	awayTeam, err := lh.db.GetTeamByID(ctx, updatedMatch.AwayTeamID)
+	if err != nil {
+		log.Printf("Failed to get away team %d: %v", updatedMatch.AwayTeamID, err)
+		http.Error(w, "Failed to get team information", http.StatusInternalServerError)
+		return
+	}
+
+	// Create match result for response
+	matchResult := models.MatchResult{
+		Match:    *updatedMatch,
+		HomeTeam: homeTeam.Name,
+		AwayTeam: awayTeam.Name,
+		Result:   newResult,
+	}
+
+	// Create response
+	response := models.EditMatchResponse{
+		Match:          matchResult,
+		PreviousResult: previousResult,
+		NewResult:      newResult,
+		Message:        fmt.Sprintf("Match result edited successfully. Changed from %s to %s (%s vs %s)", previousResult, newResult, homeTeam.Name, awayTeam.Name),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
 // basicRandomGoals generates basic random goals as fallback
 func (lh *LeagueHandler) basicRandomGoals() int {
 	rand.Seed(time.Now().UnixNano())

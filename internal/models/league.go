@@ -153,3 +153,17 @@ type PredictChampionResponse struct {
 	ChampionProbabilities []ChampionProbability `json:"champion_probabilities"`
 	Message               string                `json:"message"`
 }
+
+// EditMatchRequest represents the request to edit a match result
+type EditMatchRequest struct {
+	HomeGoals int `json:"home_goals"`
+	AwayGoals int `json:"away_goals"`
+}
+
+// EditMatchResponse represents the response for editing a match result
+type EditMatchResponse struct {
+	Match          MatchResult `json:"match"`
+	PreviousResult string      `json:"previous_result"`
+	NewResult      string      `json:"new_result"`
+	Message        string      `json:"message"`
+}

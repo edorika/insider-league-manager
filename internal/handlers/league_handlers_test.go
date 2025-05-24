@@ -217,6 +217,31 @@ func (m *mockLeagueDBService) GetStandings(ctx context.Context, leagueID int) ([
 	return nil, fmt.Errorf("no standings found for league %d", leagueID)
 }
 
+func (m *mockLeagueDBService) GetMatchByID(ctx context.Context, matchID int) (*models.Match, error) {
+	if matchID == 1 {
+		homeGoals := 3
+		awayGoals := 1
+		return &models.Match{
+			ID:         1,
+			LeagueID:   1,
+			HomeTeamID: 1,
+			AwayTeamID: 2,
+			Week:       1,
+			HomeGoals:  &homeGoals,
+			AwayGoals:  &awayGoals,
+			Status:     "played",
+		}, nil
+	}
+	return nil, fmt.Errorf("no rows in result set")
+}
+
+func (m *mockLeagueDBService) EditMatch(ctx context.Context, matchID, newHomeGoals, newAwayGoals int) error {
+	if matchID == 1 {
+		return nil // Successful edit
+	}
+	return fmt.Errorf("match not found or cannot be edited")
+}
+
 func TestCreateLeagueHandler(t *testing.T) {
 	handler := NewLeagueHandler(&mockLeagueDBService{})
 

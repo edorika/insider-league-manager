@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"insider-league-manager/internal/models"
@@ -460,4 +461,245 @@ func (s *service) GetStandings(ctx context.Context, leagueID int) ([]models.Stan
 	}
 
 	return standings, nil
+}
+
+// GetMatchByID retrieves a match by its ID
+func (s *service) GetMatchByID(ctx context.Context, matchID int) (*models.Match, error) {
+	query := `
+		SELECT id, league_id, home_team_id, away_team_id, week, home_goals, away_goals, status, played_at, created_at
+		FROM matches 
+		WHERE id = $1
+	`
+
+	var match models.Match
+	err := s.db.QueryRowContext(ctx, query, matchID).Scan(
+		&match.ID,
+		&match.LeagueID,
+		&match.HomeTeamID,
+		&match.AwayTeamID,
+		&match.Week,
+		&match.HomeGoals,
+		&match.AwayGoals,
+		&match.Status,
+		&match.PlayedAt,
+		&match.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get match by ID %d: %w", matchID, err)
+	}
+
+	return &match, nil
+}
+
+// EditMatch updates match result and recalculates standings
+func (s *service) EditMatch(ctx context.Context, matchID, newHomeGoals, newAwayGoals int) error {
+	// Start a transaction to ensure all operations succeed or fail together
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get the current match details
+	getMatchQuery := `
+		SELECT league_id, home_team_id, away_team_id, home_goals, away_goals, status
+		FROM matches 
+		WHERE id = $1
+	`
+
+	var leagueID, homeTeamID, awayTeamID int
+	var oldHomeGoals, oldAwayGoals *int
+	var status string
+
+	err = tx.QueryRowContext(ctx, getMatchQuery, matchID).Scan(
+		&leagueID, &homeTeamID, &awayTeamID, &oldHomeGoals, &oldAwayGoals, &status,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get match details: %w", err)
+	}
+
+	// Check if match can be edited (must be played)
+	if status != "played" {
+		return fmt.Errorf("can only edit matches with 'played' status, current status: %s", status)
+	}
+
+	if oldHomeGoals == nil || oldAwayGoals == nil {
+		return fmt.Errorf("match has no existing result to edit")
+	}
+
+	// Update the match with new results
+	updateMatchQuery := `
+		UPDATE matches 
+		SET home_goals = $1, away_goals = $2 
+		WHERE id = $3
+	`
+
+	_, err = tx.ExecContext(ctx, updateMatchQuery, newHomeGoals, newAwayGoals, matchID)
+	if err != nil {
+		return fmt.Errorf("failed to update match: %w", err)
+	}
+
+	// Reverse the old standings effect
+	err = s.reverseStandingsEffect(ctx, tx, leagueID, homeTeamID, awayTeamID, *oldHomeGoals, *oldAwayGoals)
+	if err != nil {
+		return fmt.Errorf("failed to reverse old standings: %w", err)
+	}
+
+	// Apply the new standings effect
+	err = s.applyStandingsEffect(ctx, tx, leagueID, homeTeamID, awayTeamID, newHomeGoals, newAwayGoals)
+	if err != nil {
+		return fmt.Errorf("failed to apply new standings: %w", err)
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// reverseStandingsEffect removes the effect of the old match result from standings
+func (s *service) reverseStandingsEffect(ctx context.Context, tx *sql.Tx, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error {
+	// Calculate what needs to be reversed
+	var homePoints, awayPoints int
+	var homeWins, homeDraws, homeLosses int
+	var awayWins, awayDraws, awayLosses int
+
+	if homeGoals > awayGoals {
+		// Home team won
+		homePoints = 3
+		awayPoints = 0
+		homeWins = 1
+		awayLosses = 1
+	} else if homeGoals < awayGoals {
+		// Away team won
+		homePoints = 0
+		awayPoints = 3
+		homeLosses = 1
+		awayWins = 1
+	} else {
+		// Draw
+		homePoints = 1
+		awayPoints = 1
+		homeDraws = 1
+		awayDraws = 1
+	}
+
+	// Reverse home team standings
+	homeQuery := `
+		UPDATE standings 
+		SET points = points - $1,
+		    played = played - 1,
+		    wins = wins - $2,
+		    draws = draws - $3,
+		    losses = losses - $4,
+		    goals_for = goals_for - $5,
+		    goals_against = goals_against - $6,
+		    goal_difference = goal_difference - ($5 - $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err := tx.ExecContext(ctx, homeQuery,
+		homePoints, homeWins, homeDraws, homeLosses,
+		homeGoals, awayGoals, leagueID, homeTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to reverse home team standings: %w", err)
+	}
+
+	// Reverse away team standings
+	awayQuery := `
+		UPDATE standings 
+		SET points = points - $1,
+		    played = played - 1,
+		    wins = wins - $2,
+		    draws = draws - $3,
+		    losses = losses - $4,
+		    goals_for = goals_for - $5,
+		    goals_against = goals_against - $6,
+		    goal_difference = goal_difference - ($5 - $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err = tx.ExecContext(ctx, awayQuery,
+		awayPoints, awayWins, awayDraws, awayLosses,
+		awayGoals, homeGoals, leagueID, awayTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to reverse away team standings: %w", err)
+	}
+
+	return nil
+}
+
+// applyStandingsEffect applies the effect of the new match result to standings
+func (s *service) applyStandingsEffect(ctx context.Context, tx *sql.Tx, leagueID, homeTeamID, awayTeamID, homeGoals, awayGoals int) error {
+	// Calculate what needs to be applied
+	var homePoints, awayPoints int
+	var homeWins, homeDraws, homeLosses int
+	var awayWins, awayDraws, awayLosses int
+
+	if homeGoals > awayGoals {
+		// Home team won
+		homePoints = 3
+		awayPoints = 0
+		homeWins = 1
+		awayLosses = 1
+	} else if homeGoals < awayGoals {
+		// Away team won
+		homePoints = 0
+		awayPoints = 3
+		homeLosses = 1
+		awayWins = 1
+	} else {
+		// Draw
+		homePoints = 1
+		awayPoints = 1
+		homeDraws = 1
+		awayDraws = 1
+	}
+
+	// Apply home team standings
+	homeQuery := `
+		UPDATE standings 
+		SET points = points + $1,
+		    played = played + 1,
+		    wins = wins + $2,
+		    draws = draws + $3,
+		    losses = losses + $4,
+		    goals_for = goals_for + $5,
+		    goals_against = goals_against + $6,
+		    goal_difference = goal_difference + ($5 - $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err := tx.ExecContext(ctx, homeQuery,
+		homePoints, homeWins, homeDraws, homeLosses,
+		homeGoals, awayGoals, leagueID, homeTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to apply home team standings: %w", err)
+	}
+
+	// Apply away team standings
+	awayQuery := `
+		UPDATE standings 
+		SET points = points + $1,
+		    played = played + 1,
+		    wins = wins + $2,
+		    draws = draws + $3,
+		    losses = losses + $4,
+		    goals_for = goals_for + $5,
+		    goals_against = goals_against + $6,
+		    goal_difference = goal_difference + ($5 - $6)
+		WHERE league_id = $7 AND team_id = $8
+	`
+
+	_, err = tx.ExecContext(ctx, awayQuery,
+		awayPoints, awayWins, awayDraws, awayLosses,
+		awayGoals, homeGoals, leagueID, awayTeamID)
+	if err != nil {
+		return fmt.Errorf("failed to apply away team standings: %w", err)
+	}
+
+	return nil
 }

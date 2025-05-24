@@ -84,6 +84,12 @@ type Service interface {
 
 	// GetStandings retrieves league standings sorted by points and goal difference
 	GetStandings(ctx context.Context, leagueID int) ([]models.StandingWithTeam, error)
+
+	// GetMatchByID retrieves a match by its ID
+	GetMatchByID(ctx context.Context, matchID int) (*models.Match, error)
+
+	// EditMatch updates match result and recalculates standings
+	EditMatch(ctx context.Context, matchID, newHomeGoals, newAwayGoals int) error
 }
 
 type service struct {
