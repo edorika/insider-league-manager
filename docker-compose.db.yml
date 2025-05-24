@@ -1,0 +1,27 @@
+services:
+  # Database service only
+  psql_bp:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${BLUEPRINT_DB_DATABASE:-insider_league_manager}
+      POSTGRES_USER: ${BLUEPRINT_DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${BLUEPRINT_DB_PASSWORD:-password123}
+    ports:
+      - "${BLUEPRINT_DB_PORT:-5432}:5432"
+    volumes:
+      - psql_volume_bp:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BLUEPRINT_DB_USERNAME:-postgres} -d ${BLUEPRINT_DB_DATABASE:-insider_league_manager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  psql_volume_bp:
+
+networks:
+  app-network:
+    driver: bridge 
