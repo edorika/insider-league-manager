@@ -166,6 +166,41 @@ func (m *mockDBService) AdvanceLeagueWeek(ctx context.Context, leagueID int) err
 	return nil
 }
 
+func (m *mockDBService) GetStandings(ctx context.Context, leagueID int) ([]models.StandingWithTeam, error) {
+	return []models.StandingWithTeam{
+		{
+			Standing: models.Standing{
+				LeagueID:       leagueID,
+				TeamID:         1,
+				Points:         9,
+				Played:         3,
+				Wins:           3,
+				Draws:          0,
+				Losses:         0,
+				GoalsFor:       5,
+				GoalsAgainst:   1,
+				GoalDifference: 4,
+			},
+			TeamName: "Team A",
+		},
+		{
+			Standing: models.Standing{
+				LeagueID:       leagueID,
+				TeamID:         2,
+				Points:         6,
+				Played:         3,
+				Wins:           2,
+				Draws:          0,
+				Losses:         1,
+				GoalsFor:       4,
+				GoalsAgainst:   2,
+				GoalDifference: 2,
+			},
+			TeamName: "Team B",
+		},
+	}, nil
+}
+
 func TestCreateTeamHandler(t *testing.T) {
 	handler := NewTeamHandler(&mockDBService{})
 

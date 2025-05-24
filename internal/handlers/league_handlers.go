@@ -1136,6 +1136,276 @@ func (lh *LeagueHandler) PlayAllMatchesHandler(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// PredictChampionHandler handles GET /api/leagues/predict-champion/:leagueID
+func (lh *LeagueHandler) PredictChampionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract leagueID from URL path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 4 || pathParts[0] != "api" || pathParts[1] != "leagues" || pathParts[2] != "predict-champion" {
+		http.Error(w, "Invalid URL path", http.StatusBadRequest)
+		return
+	}
+
+	leagueID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid league ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Validate league exists and get its current state
+	league, err := lh.db.GetLeagueByID(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get league by ID %d: %v", leagueID, err)
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "League not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to get league", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 2. Check if league is in correct status and at least at week 4
+	if league.Status != "started" && league.Status != "finished" {
+		http.Error(w, fmt.Sprintf("League must be 'started' or 'finished' for predictions. Current status: %s", league.Status), http.StatusBadRequest)
+		return
+	}
+
+	if league.CurrentWeek < 4 {
+		http.Error(w, fmt.Sprintf("Championship prediction requires at least 4 weeks of play. Current week: %d", league.CurrentWeek), http.StatusBadRequest)
+		return
+	}
+
+	// 3. Get current standings
+	standings, err := lh.db.GetStandings(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get standings for league %d: %v", leagueID, err)
+		http.Error(w, "Failed to get league standings", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. If league is finished, return actual winner
+	if league.Status == "finished" {
+		championProbabilities := lh.getActualChampion(standings)
+
+		resp := models.PredictChampionResponse{
+			League: models.LeagueResponse{
+				ID:          league.ID,
+				Name:        league.Name,
+				Status:      league.Status,
+				CurrentWeek: league.CurrentWeek,
+				CreatedAt:   league.CreatedAt,
+			},
+			PredictionWeek:        league.CurrentWeek,
+			Simulations:           0,
+			CurrentStandings:      standings,
+			ChampionProbabilities: championProbabilities,
+			Message:               fmt.Sprintf("League '%s' is finished. Showing actual champion.", league.Name),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+		}
+		return
+	}
+
+	// 5. Get teams and remaining matches for simulation
+	teams, err := lh.db.GetTeamsInLeague(ctx, leagueID)
+	if err != nil {
+		log.Printf("Failed to get teams in league %d: %v", leagueID, err)
+		http.Error(w, "Failed to get teams in league", http.StatusInternalServerError)
+		return
+	}
+
+	totalWeeks := lh.calculateTotalWeeks(len(teams))
+
+	// Get all remaining matches
+	var remainingMatches []*models.Match
+	for week := league.CurrentWeek + 1; week <= totalWeeks; week++ {
+		weekMatches, err := lh.db.GetMatchesByWeekAndLeague(ctx, leagueID, week)
+		if err != nil {
+			log.Printf("Failed to get matches for week %d: %v", week, err)
+			continue
+		}
+		remainingMatches = append(remainingMatches, weekMatches...)
+	}
+
+	// 6. Run Monte Carlo simulation
+	const numSimulations = 10000
+	championCounts := make(map[int]int) // teamID -> number of times champion
+
+	log.Printf("Running %d simulations to predict champion for league %d", numSimulations, leagueID)
+
+	for sim := 0; sim < numSimulations; sim++ {
+		champion := lh.simulateRestOfSeason(standings, remainingMatches, teams)
+		championCounts[champion]++
+	}
+
+	// 7. Calculate probabilities
+	championProbabilities := make([]models.ChampionProbability, 0, len(championCounts))
+	for _, standing := range standings {
+		count := championCounts[standing.TeamID]
+		probability := float64(count) / float64(numSimulations) * 100.0
+
+		championProbabilities = append(championProbabilities, models.ChampionProbability{
+			TeamID:      standing.TeamID,
+			TeamName:    standing.TeamName,
+			Probability: probability,
+		})
+	}
+
+	// Sort by probability (highest first)
+	for i := 0; i < len(championProbabilities)-1; i++ {
+		for j := i + 1; j < len(championProbabilities); j++ {
+			if championProbabilities[j].Probability > championProbabilities[i].Probability {
+				championProbabilities[i], championProbabilities[j] = championProbabilities[j], championProbabilities[i]
+			}
+		}
+	}
+
+	// 8. Create response
+	resp := models.PredictChampionResponse{
+		League: models.LeagueResponse{
+			ID:          league.ID,
+			Name:        league.Name,
+			Status:      league.Status,
+			CurrentWeek: league.CurrentWeek,
+			CreatedAt:   league.CreatedAt,
+		},
+		PredictionWeek:        league.CurrentWeek,
+		Simulations:           numSimulations,
+		CurrentStandings:      standings,
+		ChampionProbabilities: championProbabilities,
+		Message:               fmt.Sprintf("Championship prediction for league '%s' after week %d based on %d simulations.", league.Name, league.CurrentWeek, numSimulations),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
+}
+
+// getActualChampion returns 100% probability for the actual champion when league is finished
+func (lh *LeagueHandler) getActualChampion(standings []models.StandingWithTeam) []models.ChampionProbability {
+	var championProbabilities []models.ChampionProbability
+
+	for i, standing := range standings {
+		probability := 0.0
+		if i == 0 { // First place is the champion
+			probability = 100.0
+		}
+
+		championProbabilities = append(championProbabilities, models.ChampionProbability{
+			TeamID:      standing.TeamID,
+			TeamName:    standing.TeamName,
+			Probability: probability,
+		})
+	}
+
+	return championProbabilities
+}
+
+// simulateRestOfSeason simulates all remaining matches and returns the champion team ID
+func (lh *LeagueHandler) simulateRestOfSeason(currentStandings []models.StandingWithTeam, remainingMatches []*models.Match, teams []*models.Team) int {
+	// Create a copy of current standings for simulation
+	standings := make(map[int]*models.Standing)
+	for _, s := range currentStandings {
+		standings[s.TeamID] = &models.Standing{
+			TeamID:         s.TeamID,
+			Points:         s.Points,
+			Played:         s.Played,
+			Wins:           s.Wins,
+			Draws:          s.Draws,
+			Losses:         s.Losses,
+			GoalsFor:       s.GoalsFor,
+			GoalsAgainst:   s.GoalsAgainst,
+			GoalDifference: s.GoalDifference,
+		}
+	}
+
+	// Get team strengths for simulation
+	teamStrengths := make(map[int]int)
+	for _, team := range teams {
+		teamStrengths[team.ID] = team.Strength
+	}
+
+	// Simulate all remaining matches
+	for _, match := range remainingMatches {
+		homeStrength := teamStrengths[match.HomeTeamID]
+		awayStrength := teamStrengths[match.AwayTeamID]
+
+		homeGoals, awayGoals := lh.simulateMatch(homeStrength, awayStrength)
+
+		// Update standings based on match result
+		lh.updateStandingsInMemory(standings, match.HomeTeamID, match.AwayTeamID, homeGoals, awayGoals)
+	}
+
+	// Find champion (team with most points, then best goal difference)
+	var championID int
+	var bestPoints int = -1
+	var bestGoalDiff int = -999
+
+	for teamID, standing := range standings {
+		if standing.Points > bestPoints ||
+			(standing.Points == bestPoints && standing.GoalDifference > bestGoalDiff) {
+			bestPoints = standing.Points
+			bestGoalDiff = standing.GoalDifference
+			championID = teamID
+		}
+	}
+
+	return championID
+}
+
+// updateStandingsInMemory updates standings in memory for simulation
+func (lh *LeagueHandler) updateStandingsInMemory(standings map[int]*models.Standing, homeTeamID, awayTeamID, homeGoals, awayGoals int) {
+	homeStanding := standings[homeTeamID]
+	awayStanding := standings[awayTeamID]
+
+	// Update matches played
+	homeStanding.Played++
+	awayStanding.Played++
+
+	// Update goals
+	homeStanding.GoalsFor += homeGoals
+	homeStanding.GoalsAgainst += awayGoals
+	awayStanding.GoalsFor += awayGoals
+	awayStanding.GoalsAgainst += homeGoals
+
+	// Update goal difference
+	homeStanding.GoalDifference = homeStanding.GoalsFor - homeStanding.GoalsAgainst
+	awayStanding.GoalDifference = awayStanding.GoalsFor - awayStanding.GoalsAgainst
+
+	// Update wins/draws/losses and points
+	if homeGoals > awayGoals {
+		// Home team wins
+		homeStanding.Wins++
+		homeStanding.Points += 3
+		awayStanding.Losses++
+	} else if homeGoals < awayGoals {
+		// Away team wins
+		awayStanding.Wins++
+		awayStanding.Points += 3
+		homeStanding.Losses++
+	} else {
+		// Draw
+		homeStanding.Draws++
+		homeStanding.Points += 1
+		awayStanding.Draws++
+		awayStanding.Points += 1
+	}
+}
+
 // basicRandomGoals generates basic random goals as fallback
 func (lh *LeagueHandler) basicRandomGoals() int {
 	rand.Seed(time.Now().UnixNano())
